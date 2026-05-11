@@ -9,6 +9,7 @@ import campaignsRouter from './campaigns';
 import integrationsRouter from './integrations';
 import audiencesRouter from './audiences';
 import rulesRouter from './rules';
+import syncRouter from './sync';
 
 const router = Router();
 
@@ -23,5 +24,6 @@ router.use('/campaigns', authenticate, campaignsRouter);
 router.use('/integrations', authenticate, integrationsRouter);
 router.use('/audiences', authenticate, audiencesRouter);
 router.use('/rules', authenticate, rulesRouter);
+router.use('/sync', authenticate, syncRouter);
 
 export default router;
