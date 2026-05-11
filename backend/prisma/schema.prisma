@@ -1,0 +1,399 @@
+// ─────────────────────────────────────────────────────────────
+//  ORUS — Schema Prisma (SQLite compatível para dev local)
+//  Em produção: trocar provider para "postgresql"
+// ─────────────────────────────────────────────────────────────
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─── User ────────────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  avatarUrl    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  profiles Profile[]
+  sessions Session[]
+
+  @@map("users")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+// ─── Profile ─────────────────────────────────────────────────
+
+model Profile {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  slug      String
+  logoUrl   String?
+  timezone  String   @default("America/Sao_Paulo")
+  currency  String   @default("BRL")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  integrations Integration[]
+  campaigns    Campaign[]
+  conversions  SiteConversion[]
+  audiences    Audience[]
+  rules        AutomationRule[]
+  trackingKeys TrackingKey[]
+
+  @@unique([userId, slug])
+  @@index([userId])
+  @@map("profiles")
+}
+
+// ─── Integrations ────────────────────────────────────────────
+
+model Integration {
+  id             String   @id @default(cuid())
+  profileId      String
+  // IntegrationType: META_BMS | TIKTOK | KWAI | GOOGLE_ADS | GA4 | WHATSAPP | CRM
+  type           String
+  label          String
+  accountId      String?
+  encryptedToken String?
+  extraConfig    String?  // JSON serializado
+  isActive       Boolean  @default(true)
+  lastSyncAt     DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  profile   Profile    @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  campaigns Campaign[]
+
+  @@index([profileId])
+  @@map("integrations")
+}
+
+// ─── Campaigns ───────────────────────────────────────────────
+
+model Campaign {
+  id             String   @id @default(cuid())
+  profileId      String
+  integrationId  String
+  externalId     String
+  name           String
+  // AdPlatform: META | TIKTOK | KWAI | GOOGLE_ADS | YOUTUBE
+  platform       String
+  // CampaignStatus: ACTIVE | PAUSED | DELETED | ARCHIVED
+  status         String   @default("ACTIVE")
+  dailyBudget    Float?
+  lifetimeBudget Float?
+  objective      String?
+  startDate      DateTime?
+  endDate        DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  profile     Profile          @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  integration Integration      @relation(fields: [integrationId], references: [id])
+  adSets      AdSet[]
+  metrics     CampaignMetric[]
+
+  @@unique([integrationId, externalId])
+  @@index([profileId])
+  @@map("campaigns")
+}
+
+model AdSet {
+  id         String   @id @default(cuid())
+  campaignId String
+  externalId String
+  name       String
+  status     String   @default("ACTIVE")
+  budget     Float?
+  targeting  String?  // JSON serializado
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  campaign Campaign    @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  ads      Ad[]
+  metrics  AdSetMetric[]
+
+  @@unique([campaignId, externalId])
+  @@index([campaignId])
+  @@map("ad_sets")
+}
+
+model Ad {
+  id           String   @id @default(cuid())
+  adSetId      String
+  externalId   String
+  name         String
+  status       String   @default("ACTIVE")
+  creativeUrl  String?
+  thumbnailUrl String?
+  headline     String?
+  body         String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  adSet       AdSet            @relation(fields: [adSetId], references: [id], onDelete: Cascade)
+  metrics     AdMetric[]
+  conversions SiteConversion[]
+
+  @@unique([adSetId, externalId])
+  @@index([adSetId])
+  @@map("ads")
+}
+
+// ─── Métricas ─────────────────────────────────────────────────
+
+model CampaignMetric {
+  id          String   @id @default(cuid())
+  campaignId  String
+  date        DateTime
+  impressions Int      @default(0)
+  clicks      Int      @default(0)
+  spend       Float    @default(0)
+  reach       Int      @default(0)
+  cpm         Float?
+  ctr         Float?
+  revenue     Float    @default(0)
+  purchases   Int      @default(0)
+  leads       Int      @default(0)
+  roas        Float?
+  cpa         Float?
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, date])
+  @@index([campaignId, date])
+  @@map("campaign_metrics")
+}
+
+model AdSetMetric {
+  id          String   @id @default(cuid())
+  adSetId     String
+  date        DateTime
+  impressions Int      @default(0)
+  clicks      Int      @default(0)
+  spend       Float    @default(0)
+  cpm         Float?
+  ctr         Float?
+  revenue     Float    @default(0)
+  purchases   Int      @default(0)
+  leads       Int      @default(0)
+  roas        Float?
+  cpa         Float?
+
+  adSet AdSet @relation(fields: [adSetId], references: [id], onDelete: Cascade)
+
+  @@unique([adSetId, date])
+  @@index([adSetId, date])
+  @@map("ad_set_metrics")
+}
+
+model AdMetric {
+  id          String   @id @default(cuid())
+  adId        String
+  date        DateTime
+  impressions Int      @default(0)
+  clicks      Int      @default(0)
+  spend       Float    @default(0)
+  videoViews  Int      @default(0)
+  hookRate    Float?
+  cpm         Float?
+  ctr         Float?
+  revenue     Float    @default(0)
+  purchases   Int      @default(0)
+  leads       Int      @default(0)
+  roas        Float?
+  cpa         Float?
+
+  ad Ad @relation(fields: [adId], references: [id], onDelete: Cascade)
+
+  @@unique([adId, date])
+  @@index([adId, date])
+  @@map("ad_metrics")
+}
+
+// ─── Tracking ─────────────────────────────────────────────────
+
+model TrackingKey {
+  id        String   @id @default(cuid())
+  profileId String
+  key       String   @unique @default(cuid())
+  label     String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  profile     Profile          @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  conversions SiteConversion[]
+
+  @@index([profileId])
+  @@map("tracking_keys")
+}
+
+model SiteConversion {
+  id String @id @default(cuid())
+
+  profileId     String
+  trackingKeyId String?
+  adId          String?
+
+  // ConversionType: LEAD | PURCHASE | PAGEVIEW | CUSTOM
+  type  String
+  value Float?
+
+  bmId             String?
+  utmCampaign      String?
+  utmContent       String?
+  utmSource        String?
+  utmMedium        String?
+  creativeId       String?
+  adsetId          String?
+  siteCampaignId   String?
+  siteCampaignName String?
+
+  sessionId   String?
+  fingerprint String?
+  email       String?
+  phone       String?
+  ip          String?
+  userAgent   String?
+  referrer    String?
+  pageUrl     String?
+  cloakerToken String?
+  rawParams   String?  // JSON serializado
+
+  createdAt DateTime @default(now())
+
+  profile     Profile      @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  trackingKey TrackingKey? @relation(fields: [trackingKeyId], references: [id])
+  ad          Ad?          @relation(fields: [adId], references: [id])
+
+  @@index([profileId, type])
+  @@index([profileId, createdAt])
+  @@index([siteCampaignId])
+  @@map("site_conversions")
+}
+
+// ─── Audiences ───────────────────────────────────────────────
+
+model Audience {
+  id          String   @id @default(cuid())
+  profileId   String
+  name        String
+  description String?
+  // AudienceStatus: ACTIVE | ARCHIVED
+  status      String   @default("ACTIVE")
+  filters     String   // JSON serializado
+  userCount   Int      @default(0)
+  lastBuiltAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  profile Profile          @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  members AudienceMember[]
+
+  @@index([profileId])
+  @@map("audiences")
+}
+
+model AudienceMember {
+  id          String   @id @default(cuid())
+  audienceId  String
+  email       String?
+  phone       String?
+  fingerprint String?
+  addedAt     DateTime @default(now())
+
+  audience Audience @relation(fields: [audienceId], references: [id], onDelete: Cascade)
+
+  @@index([audienceId])
+  @@map("audience_members")
+}
+
+// ─── Automation Rules ─────────────────────────────────────────
+
+model AutomationRule {
+  id          String   @id @default(cuid())
+  profileId   String
+  name        String
+  description String?
+  isActive    Boolean  @default(true)
+  targetLevel String   // CAMPAIGN | ADSET | AD
+  // AdPlatform: META | TIKTOK | KWAI | GOOGLE_ADS | YOUTUBE
+  platform    String
+
+  conditions    RuleCondition[]
+  actions       RuleAction[]
+  executions    RuleExecution[]
+
+  checkInterval Int      @default(60)
+  lastCheckedAt DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId])
+  @@map("automation_rules")
+}
+
+model RuleCondition {
+  id       String @id @default(cuid())
+  ruleId   String
+  // RuleConditionType: ROAS_BELOW | ROAS_ABOVE | CPA_ABOVE | CPA_BELOW | SPEND_ABOVE | LEADS_BELOW | LEADS_ABOVE | CTR_BELOW | CTR_ABOVE
+  type     String
+  operator String @default("AND")
+  value    Float
+  window   Int    @default(1)
+
+  rule AutomationRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@map("rule_conditions")
+}
+
+model RuleAction {
+  id      String  @id @default(cuid())
+  ruleId  String
+  // RuleActionType: PAUSE_CAMPAIGN | PAUSE_ADSET | INCREASE_BUDGET | DECREASE_BUDGET | SEND_ALERT
+  type    String
+  payload String? // JSON serializado
+
+  rule AutomationRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@map("rule_actions")
+}
+
+model RuleExecution {
+  id         String   @id @default(cuid())
+  ruleId     String
+  targetId   String
+  success    Boolean
+  log        String?
+  executedAt DateTime @default(now())
+
+  rule AutomationRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@index([ruleId])
+  @@map("rule_executions")
+}

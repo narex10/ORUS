@@ -1,0 +1,21 @@
+node_modules/
+dist/
+.env
+*.env.local
+
+# SQLite dev database
+backend/prisma/dev.db
+backend/prisma/dev.db-journal
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
