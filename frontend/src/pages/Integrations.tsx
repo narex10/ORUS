@@ -102,6 +102,85 @@ const PLATFORM_CONFIG: Record<PlatformType, {
   },
 };
 
+// ─── Guia de token Meta ───────────────────────────────────────
+
+function MetaTokenGuide() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="rounded-lg border border-blue-500/20 bg-blue-500/5">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="flex w-full items-center justify-between px-3 py-2.5 text-xs font-medium text-blue-400"
+      >
+        <span className="flex items-center gap-2">
+          📘 Como gerar o Access Token correto para o Meta Ads?
+        </span>
+        {open ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+      </button>
+      {open && (
+        <div className="border-t border-blue-500/20 px-3 pb-3 pt-2 space-y-3 text-xs text-muted-foreground">
+          <div className="space-y-1.5">
+            <p className="font-semibold text-foreground">Opção 1 — Graph API Explorer (rápido, para testes)</p>
+            <ol className="space-y-1 list-decimal list-inside">
+              <li>Acesse <a href="https://developers.facebook.com/tools/explorer/" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">developers.facebook.com/tools/explorer</a></li>
+              <li>Selecione seu App no topo direito</li>
+              <li>Clique em <strong className="text-foreground">Generate Access Token</strong></li>
+              <li>Marque as permissões: <code className="bg-muted px-1 rounded text-emerald-400">ads_read</code>, <code className="bg-muted px-1 rounded text-emerald-400">ads_management</code>, <code className="bg-muted px-1 rounded text-emerald-400">business_management</code></li>
+              <li>Copie o token gerado e cole no campo acima</li>
+            </ol>
+            <p className="text-amber-400/80">⚠ Token do Explorer expira em ~1h. Use System User para produção.</p>
+          </div>
+
+          <div className="space-y-1.5">
+            <p className="font-semibold text-foreground">Opção 2 — System User Token (recomendado para produção)</p>
+            <ol className="space-y-1 list-decimal list-inside">
+              <li>Acesse o <a href="https://business.facebook.com/settings/system-users" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">Business Manager → System Users</a></li>
+              <li>Crie um System User do tipo <strong className="text-foreground">Admin</strong></li>
+              <li>Adicione as contas de anúncios que deseja acessar</li>
+              <li>Clique em <strong className="text-foreground">Generate Token</strong> e marque <code className="bg-muted px-1 rounded text-emerald-400">ads_read</code> e <code className="bg-muted px-1 rounded text-emerald-400">ads_management</code></li>
+              <li>Token não expira automaticamente</li>
+            </ol>
+          </div>
+
+          <div className="rounded bg-muted/50 p-2">
+            <p className="font-medium text-foreground mb-1">Ad Account ID</p>
+            <p>Encontre em: <a href="https://www.facebook.com/adsmanager" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">Gerenciador de Anúncios</a> → URL contém <code className="bg-muted px-1 rounded">act_XXXXXXXXX</code></p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MetaTokenError({ error }: { error: string }) {
+  const isPermission = error.includes('ads_read') || error.includes('permission') || error.includes('permissão');
+  const isAccount = error.includes('conta') || error.includes('acesso') || error.includes('account');
+
+  return (
+    <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-3 space-y-2">
+      <div className="flex items-start gap-2">
+        <AlertCircle className="h-4 w-4 text-red-400 mt-0.5 flex-shrink-0" />
+        <p className="text-sm text-red-400">{error}</p>
+      </div>
+      {isPermission && (
+        <div className="text-xs text-muted-foreground space-y-1 border-t border-red-500/10 pt-2">
+          <p className="font-medium text-foreground">Como corrigir:</p>
+          <ol className="space-y-1 list-decimal list-inside">
+            <li>Vá em <a href="https://developers.facebook.com/tools/explorer/" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">Graph API Explorer</a></li>
+            <li>Gere um novo token marcando <code className="bg-muted px-1 rounded text-emerald-400">ads_read</code> e <code className="bg-muted px-1 rounded text-emerald-400">ads_management</code></li>
+            <li>Cole o novo token no campo acima e valide novamente</li>
+          </ol>
+        </div>
+      )}
+      {isAccount && !isPermission && (
+        <p className="text-xs text-muted-foreground border-t border-red-500/10 pt-2">
+          Certifique-se que o usuário do token tem acesso à conta de anúncios no Business Manager.
+        </p>
+      )}
+    </div>
+  );
+}
+
 // ─── Sub-componentes ──────────────────────────────────────────
 
 function CopyButton({ text }: { text: string }) {
@@ -266,7 +345,7 @@ export function Integrations() {
   const [selectedType, setSelectedType] = useState<PlatformType>('META_BMS');
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const [validating, setValidating] = useState(false);
-  const [validateResult, setValidateResult] = useState<{ accountName: string; currency: string } | null>(null);
+  const [validateResult, setValidateResult] = useState<{ accountName: string; currency: string; userName: string; permissions: string[] } | null>(null);
   const [validateError, setValidateError] = useState<string | null>(null);
 
   const [form, setForm] = useState<Record<string, string>>({
@@ -449,9 +528,14 @@ export function Integrations() {
               ))}
             </div>
 
+            {/* Guia de token Meta */}
+            {selectedType === 'META_BMS' && (
+              <MetaTokenGuide />
+            )}
+
             {/* Validação Meta */}
             {selectedType === 'META_BMS' && form.token && form.accountId && (
-              <div>
+              <div className="space-y-2">
                 <Button
                   variant="outline"
                   size="sm"
@@ -460,23 +544,24 @@ export function Integrations() {
                   className="gap-1.5"
                 >
                   <RefreshCw className={cn('h-3.5 w-3.5', validating && 'animate-spin')} />
-                  {validating ? 'Validando...' : 'Validar Token'}
+                  {validating ? 'Validando...' : 'Validar Token e Conta'}
                 </Button>
 
                 {validateResult && (
-                  <div className="mt-2 flex items-center gap-2 text-sm text-emerald-400">
-                    <CheckCircle2 className="h-4 w-4" />
-                    <span>
-                      Conta válida: <strong>{validateResult.accountName}</strong>
-                      {' '}· Moeda: <strong>{validateResult.currency}</strong>
-                    </span>
+                  <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-3 space-y-1">
+                    <div className="flex items-center gap-2 text-sm text-emerald-400 font-medium">
+                      <CheckCircle2 className="h-4 w-4" />
+                      Token válido com permissões corretas!
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Usuário: <strong className="text-foreground">{validateResult.userName}</strong>
+                      {' '}· Conta: <strong className="text-foreground">{validateResult.accountName}</strong>
+                      {' '}· Moeda: <strong className="text-foreground">{validateResult.currency}</strong>
+                    </p>
                   </div>
                 )}
                 {validateError && (
-                  <div className="mt-2 flex items-center gap-2 text-sm text-red-400">
-                    <AlertCircle className="h-4 w-4" />
-                    <span>{validateError}</span>
-                  </div>
+                  <MetaTokenError error={validateError} />
                 )}
               </div>
             )}

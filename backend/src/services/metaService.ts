@@ -301,21 +301,56 @@ export async function syncMetaIntegration(integrationId: string): Promise<{
 export async function validateMetaToken(token: string, accountId: string): Promise<{
   accountName: string;
   currency: string;
+  userName: string;
   valid: boolean;
+  permissions: string[];
 }> {
-  const id = accountId.startsWith('act_') ? accountId : `act_${accountId}`;
-  try {
-    const res = await fetch(
-      `${META_API}/${id}?fields=name,currency,account_status&access_token=${encodeURIComponent(token)}`
-    );
-    const data = await res.json() as any;
-    if (data.error) throw new Error(data.error.message);
-    return {
-      accountName: data.name,
-      currency: data.currency,
-      valid: data.account_status === 1,
-    };
-  } catch (err: any) {
-    throw new Error(`Token inválido: ${err.message}`);
+  // 1. Valida o token em si (sempre funciona se o token for válido)
+  const meRes = await fetch(
+    `${META_API}/me?fields=id,name&access_token=${encodeURIComponent(token)}`
+  );
+  const meData = await meRes.json() as any;
+  if (meData.error) {
+    throw new Error(`Token inválido: ${meData.error.message}`);
   }
+
+  // 2. Verifica quais permissões o token tem
+  const permRes = await fetch(
+    `${META_API}/me/permissions?access_token=${encodeURIComponent(token)}`
+  );
+  const permData = await permRes.json() as any;
+  const grantedPerms: string[] = (permData.data ?? [])
+    .filter((p: any) => p.status === 'granted')
+    .map((p: any) => p.permission as string);
+
+  const hasAdsRead = grantedPerms.includes('ads_read') || grantedPerms.includes('ads_management');
+
+  if (!hasAdsRead) {
+    throw new Error(
+      `O token não tem permissão "ads_read". ` +
+      `Permissões atuais: ${grantedPerms.join(', ') || 'nenhuma'}. ` +
+      `Gere um novo token com a permissão ads_read no Graph API Explorer.`
+    );
+  }
+
+  // 3. Acessa os dados da conta de anúncios
+  const id = accountId.startsWith('act_') ? accountId : `act_${accountId}`;
+  const acctRes = await fetch(
+    `${META_API}/${id}?fields=name,currency,account_status&access_token=${encodeURIComponent(token)}`
+  );
+  const acctData = await acctRes.json() as any;
+  if (acctData.error) {
+    throw new Error(
+      `Não foi possível acessar a conta ${id}: ${acctData.error.message}. ` +
+      `Verifique se o usuário tem acesso a esta conta no Business Manager.`
+    );
+  }
+
+  return {
+    accountName: acctData.name,
+    currency: acctData.currency,
+    userName: meData.name,
+    valid: acctData.account_status === 1,
+    permissions: grantedPerms,
+  };
 }
