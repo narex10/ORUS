@@ -10,6 +10,7 @@ import integrationsRouter from './integrations';
 import audiencesRouter from './audiences';
 import rulesRouter from './rules';
 import syncRouter from './sync';
+import oauthRouter from './oauth';
 
 const router = Router();
 
@@ -25,5 +26,6 @@ router.use('/integrations', authenticate, integrationsRouter);
 router.use('/audiences', authenticate, audiencesRouter);
 router.use('/rules', authenticate, rulesRouter);
 router.use('/sync', authenticate, syncRouter);
+router.use('/oauth', oauthRouter); // callback é público (sem authenticate)
 
 export default router;

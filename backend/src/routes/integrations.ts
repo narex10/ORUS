@@ -10,7 +10,9 @@ const createSchema = z.object({
   type: z.string(),
   label: z.string().min(1),
   accountId: z.string().optional(),
-  token: z.string().optional(),
+  token: z.string().optional(),          // access token direto (legado)
+  appId: z.string().optional(),          // App ID do Meta App
+  appSecret: z.string().optional(),      // App Secret (será criptografado)
   extraConfig: z.record(z.unknown()).optional(),
 });
 
@@ -40,18 +42,29 @@ router.post('/profile/:profileId', async (req: AuthRequest, res: Response) => {
 
   const body = createSchema.parse(req.body);
 
+  // Monta extraConfig mesclando campos explícitos
+  let extraConfig: Record<string, unknown> = { ...(body.extraConfig ?? {}) };
+  if (body.appId) extraConfig.appId = body.appId;
+  // App Secret é criptografado e salvo dentro do extraConfig
+  if (body.appSecret) extraConfig.appSecret = encrypt(body.appSecret);
+
   const integration = await prisma.integration.create({
     data: {
       profileId: req.params.profileId,
       type: body.type,
       label: body.label,
       accountId: body.accountId,
+      // token direto (legado / Graph API Explorer)
       encryptedToken: body.token ? encrypt(body.token) : undefined,
-      extraConfig: body.extraConfig,
+      extraConfig: Object.keys(extraConfig).length > 0
+        ? JSON.stringify(extraConfig)
+        : undefined,
+      // Se usou OAuth (appId), começa inativo até autorizar
+      isActive: !body.appId,
     },
     select: {
       id: true, type: true, label: true, accountId: true,
-      isActive: true, createdAt: true,
+      isActive: true, createdAt: true, extraConfig: true,
     },
   });
 
