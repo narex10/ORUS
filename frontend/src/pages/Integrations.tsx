@@ -1,9 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Plus, Trash2, Copy, Check, Code2, RefreshCw,
-  CheckCircle2, AlertCircle, Clock, ChevronDown, ChevronUp, ExternalLink,
-  Link2, Unlink, User
+  CheckCircle2, AlertCircle, Clock, ChevronDown, ChevronUp, ExternalLink
 } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { api } from '@/lib/api';
@@ -33,11 +32,10 @@ const PLATFORM_CONFIG: Record<PlatformType, {
     color: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
     icon: '📘',
     syncSupported: true,
-    docsUrl: 'https://developers.facebook.com/apps',
+    docsUrl: 'https://business.facebook.com/settings/system-users',
     fields: [
-      { key: 'appId', label: 'App ID', placeholder: '1234567890', hint: 'Em developers.facebook.com → seu App → Configurações → Básico' },
-      { key: 'appSecret', label: 'App Secret', placeholder: 'a1b2c3d4e5f6...', secret: true, hint: 'Configurações → Básico → Segredo do aplicativo' },
-      { key: 'accountId', label: 'Ad Account ID (opcional)', placeholder: 'act_123456789', hint: 'Deixe em branco para selecionar após conectar' },
+      { key: 'accountId', label: 'Ad Account ID', placeholder: 'act_123456789', hint: 'Gerenciador de Anúncios → ID da Conta' },
+      { key: 'token', label: 'System User Token', placeholder: 'EAAxxxxxxxx...', secret: true, hint: 'Business Manager → Usuários do sistema → Gerar token' },
     ],
   },
   TIKTOK: {
@@ -114,42 +112,49 @@ function MetaTokenGuide() {
         onClick={() => setOpen(o => !o)}
         className="flex w-full items-center justify-between px-3 py-2.5 text-xs font-medium text-blue-400"
       >
-        <span className="flex items-center gap-2">📘 Como obter o App ID e App Secret?</span>
+        <span className="flex items-center gap-2">
+          📘 Como gerar o System User Token (sem login, sem OAuth)
+        </span>
         {open ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
       </button>
       {open && (
         <div className="border-t border-blue-500/20 px-3 pb-3 pt-2 space-y-3 text-xs text-muted-foreground">
+          <div className="rounded bg-emerald-500/10 border border-emerald-500/20 p-2 text-emerald-300 text-[11px]">
+            ✅ O System User Token é permanente, não expira e funciona 100% server-to-server — sem nenhum login ou redirect.
+          </div>
+
           <div className="space-y-1.5">
-            <p className="font-semibold text-foreground">Passo 1 — Criar/acessar seu App</p>
-            <ol className="space-y-1 list-decimal list-inside">
-              <li>Acesse <a href="https://developers.facebook.com/apps" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">developers.facebook.com/apps</a></li>
-              <li>Crie um App do tipo <strong className="text-foreground">Business</strong> ou use um existente</li>
-              <li>Vá em <strong className="text-foreground">Configurações → Básico</strong></li>
-              <li>Copie o <strong className="text-foreground">ID do Aplicativo</strong> e o <strong className="text-foreground">Segredo do Aplicativo</strong></li>
+            <p className="font-semibold text-foreground">Passo 1 — Criar o System User</p>
+            <ol className="space-y-1.5 list-decimal list-inside">
+              <li>Acesse o <a href="https://business.facebook.com/settings/system-users" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">Business Manager → Configurações → Usuários do sistema</a></li>
+              <li>Clique em <strong className="text-foreground">Adicionar</strong></li>
+              <li>Dê um nome (ex: <em>ORUS API</em>) e selecione <strong className="text-foreground">Admin</strong></li>
+              <li>Clique em <strong className="text-foreground">Criar usuário do sistema</strong></li>
             </ol>
           </div>
 
           <div className="space-y-1.5">
-            <p className="font-semibold text-foreground">Passo 2 — Configurar Redirect URI</p>
-            <p>No seu App Meta, vá em <strong className="text-foreground">Produtos → Facebook Login → Configurações</strong> e adicione em <em>URIs de redirecionamento OAuth válidos</em>:</p>
-            <code className="block bg-muted rounded px-2 py-1 text-emerald-400 break-all">
-              http://localhost:3001/api/oauth/meta/callback
-            </code>
-            <p className="text-amber-400/80">⚠ Em produção, troque localhost pelo seu domínio.</p>
-          </div>
-
-          <div className="space-y-1.5">
-            <p className="font-semibold text-foreground">Passo 3 — Adicionar Marketing API ao App</p>
-            <ol className="space-y-1 list-decimal list-inside">
-              <li>No App, vá em <strong className="text-foreground">Adicionar produtos</strong></li>
-              <li>Adicione <strong className="text-foreground">Marketing API</strong></li>
-              <li>Isso garante acesso às permissões <code className="bg-muted px-1 rounded text-emerald-400">ads_read</code> e <code className="bg-muted px-1 rounded text-emerald-400">ads_management</code></li>
+            <p className="font-semibold text-foreground">Passo 2 — Dar acesso às contas de anúncios</p>
+            <ol className="space-y-1.5 list-decimal list-inside">
+              <li>No usuário criado, clique em <strong className="text-foreground">Atribuir ativos</strong></li>
+              <li>Selecione <strong className="text-foreground">Contas de anúncios</strong></li>
+              <li>Marque as contas que deseja integrar e dê permissão de <strong className="text-foreground">Anunciante</strong> ou <strong className="text-foreground">Administrador</strong></li>
             </ol>
           </div>
 
-          <div className="rounded bg-emerald-500/10 border border-emerald-500/20 p-2 text-emerald-300">
-            <p className="font-medium">✅ Após salvar, clique em "Conectar Facebook"</p>
-            <p className="mt-0.5">O ORUS redireciona para o Facebook, você aprova, e o token de longa duração (~60 dias) é salvo automaticamente.</p>
+          <div className="space-y-1.5">
+            <p className="font-semibold text-foreground">Passo 3 — Gerar o token</p>
+            <ol className="space-y-1.5 list-decimal list-inside">
+              <li>Ainda no System User, clique em <strong className="text-foreground">Gerar token</strong></li>
+              <li>Selecione seu App (ex: "Rainha dados")</li>
+              <li>Marque: <code className="bg-muted px-1 rounded text-emerald-400">ads_read</code>, <code className="bg-muted px-1 rounded text-emerald-400">ads_management</code>, <code className="bg-muted px-1 rounded text-emerald-400">business_management</code></li>
+              <li>Clique em <strong className="text-foreground">Gerar token</strong> e copie — ele <strong className="text-foreground">nunca expira</strong></li>
+            </ol>
+          </div>
+
+          <div className="space-y-1.5">
+            <p className="font-semibold text-foreground">Passo 4 — Ad Account ID</p>
+            <p>Acesse o <a href="https://www.facebook.com/adsmanager" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">Gerenciador de Anúncios</a>. O ID da conta aparece no topo da página no formato <code className="bg-muted px-1 rounded">act_XXXXXXXXX</code>, ou na URL.</p>
           </div>
         </div>
       )}
@@ -224,19 +229,11 @@ interface IntegrationCardProps {
   isConnecting: boolean;
 }
 
-function IntegrationCard({ integration, onDelete, onSync, onConnect, onDisconnect, isSyncing, isConnecting }: IntegrationCardProps) {
+function IntegrationCard({ integration, onDelete, onSync, isSyncing }: IntegrationCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [syncResult, setSyncResult] = useState<any>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
   const config = PLATFORM_CONFIG[integration.type as PlatformType];
-
-  // Parseia extraConfig para saber se usa OAuth
-  const extra = (() => { try { return JSON.parse(integration.extraConfig ?? '{}'); } catch { return {}; } })();
-  const usesOAuth = !!extra.appId;
-  const isConnected = integration.isActive && !!integration.lastSyncAt !== false;
-  const connectedUser = extra.connectedUserName;
-  const tokenExpiresAt = extra.tokenExpiresAt ? new Date(extra.tokenExpiresAt) : null;
-  const adAccounts: Array<{ id: string; name: string; currency: string }> = extra.adAccounts ?? [];
 
   async function handleSync() {
     setSyncResult(null);
@@ -261,24 +258,13 @@ function IntegrationCard({ integration, onDelete, onSync, onConnect, onDisconnec
           <div className="min-w-0">
             <p className="text-sm font-semibold text-foreground truncate">{integration.label}</p>
             <p className="text-xs text-muted-foreground flex items-center gap-1.5 flex-wrap">
-              {connectedUser && (
-                <span className="flex items-center gap-1 text-emerald-400/90">
-                  <User className="h-3 w-3" />{connectedUser}
-                </span>
-              )}
               {integration.accountId && <span>ID: {integration.accountId}</span>}
-              {integration.lastSyncAt && (
+              {integration.lastSyncAt ? (
                 <span className="text-emerald-400/70">
                   · Sync {formatDistanceToNow(new Date(integration.lastSyncAt), { locale: ptBR, addSuffix: true })}
                 </span>
-              )}
-              {!integration.lastSyncAt && !connectedUser && (
-                <span className="text-amber-400/80">· Não conectado</span>
-              )}
-              {tokenExpiresAt && (
-                <span className="text-muted-foreground/60 text-[10px]">
-                  · Token expira {tokenExpiresAt.toLocaleDateString('pt-BR')}
-                </span>
+              ) : (
+                <span className="text-amber-400/80">· Nunca sincronizado</span>
               )}
             </p>
           </div>
@@ -290,34 +276,7 @@ function IntegrationCard({ integration, onDelete, onSync, onConnect, onDisconnec
             {integration.isActive ? 'Ativo' : 'Inativo'}
           </Badge>
 
-          {/* Botão OAuth Connect / Disconnect */}
-          {usesOAuth && (
-            integration.isActive && connectedUser ? (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => onDisconnect(integration.id)}
-                className="gap-1.5 text-muted-foreground hover:text-destructive hover:border-destructive/50"
-              >
-                <Unlink className="h-3.5 w-3.5" />
-                Desconectar
-              </Button>
-            ) : (
-              <Button
-                size="sm"
-                onClick={() => onConnect(integration.id)}
-                disabled={isConnecting}
-                className="gap-1.5 bg-blue-600 hover:bg-blue-700 text-white"
-              >
-                {isConnecting
-                  ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                  : <Link2 className="h-3.5 w-3.5" />}
-                Conectar Facebook
-              </Button>
-            )
-          )}
-
-          {/* Sync só aparece se estiver conectado */}
+          {/* Sync */}
           {config?.syncSupported && integration.isActive && (
             <Button
               variant="outline"
@@ -359,21 +318,7 @@ function IntegrationCard({ integration, onDelete, onSync, onConnect, onDisconnec
 
       {/* Expanded */}
       {expanded && (
-        <div className="border-t border-border bg-muted/20 px-4 py-3 space-y-3">
-          {/* Contas vinculadas */}
-          {adAccounts.length > 0 && (
-            <div>
-              <p className="text-xs font-medium text-muted-foreground mb-2">Contas de Anúncios ({adAccounts.length})</p>
-              <div className="space-y-1">
-                {adAccounts.map(acc => (
-                  <div key={acc.id} className="flex items-center justify-between text-xs rounded-lg bg-muted/50 px-3 py-2">
-                    <span className="text-foreground font-medium">{acc.name}</span>
-                    <span className="text-muted-foreground">{acc.id} · {acc.currency}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+        <div className="border-t border-border bg-muted/20 px-4 py-3 space-y-2">
           <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
             <span>Tipo: <span className="text-foreground">{integration.type}</span></span>
             <span>Criado: <span className="text-foreground">{new Date(integration.createdAt).toLocaleDateString('pt-BR')}</span></span>
@@ -381,7 +326,7 @@ function IntegrationCard({ integration, onDelete, onSync, onConnect, onDisconnec
           {!config?.syncSupported && (
             <p className="text-xs text-amber-400 flex items-center gap-1.5">
               <Clock className="h-3.5 w-3.5" />
-              Sync automático em breve para {config?.label}
+              Sync em breve para {config?.label}
             </p>
           )}
         </div>
@@ -398,27 +343,7 @@ export function Integrations() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [selectedType, setSelectedType] = useState<PlatformType>('META_BMS');
   const [syncingId, setSyncingId] = useState<string | null>(null);
-  const [connectingId, setConnectingId] = useState<string | null>(null);
-  const [oauthMessage, setOauthMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [validating, setValidating] = useState(false);
-
-  // Captura resultado do OAuth após redirect
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('oauth_success')) {
-      const userName = params.get('user_name') ?? '';
-      const accounts = params.get('accounts') ?? '0';
-      setOauthMessage({
-        type: 'success',
-        text: `Facebook conectado com sucesso! Usuário: ${userName} · ${accounts} conta(s) de anúncios vinculada(s).`,
-      });
-      qc.invalidateQueries({ queryKey: ['integrations', activeProfile?.id] });
-      window.history.replaceState({}, '', '/integrations');
-    } else if (params.get('oauth_error')) {
-      setOauthMessage({ type: 'error', text: decodeURIComponent(params.get('oauth_error')!) });
-      window.history.replaceState({}, '', '/integrations');
-    }
-  }, []);
   const [validateResult, setValidateResult] = useState<{
     accountName: string | null;
     currency: string | null;
@@ -432,8 +357,6 @@ export function Integrations() {
     label: '',
     accountId: '',
     token: '',
-    appId: '',
-    appSecret: '',
     'extraConfig.propertyId': '',
     'extraConfig.apiSecret': '',
   });
@@ -458,6 +381,7 @@ export function Integrations() {
       setShowAddForm(false);
       setForm({ label: '', accountId: '', token: '', 'extraConfig.propertyId': '', 'extraConfig.apiSecret': '' });
       setValidateResult(null);
+      setValidateError(null);
     },
   });
 
@@ -485,23 +409,6 @@ export function Integrations() {
     } finally {
       setSyncingId(null);
     }
-  }
-
-  async function handleConnect(integrationId: string) {
-    setConnectingId(integrationId);
-    try {
-      const { data } = await api.post('/oauth/meta/url', { integrationId });
-      // Redireciona para o Facebook OAuth
-      window.location.href = data.url;
-    } catch (err: any) {
-      setOauthMessage({ type: 'error', text: err.response?.data?.error ?? 'Erro ao gerar URL de autorização' });
-      setConnectingId(null);
-    }
-  }
-
-  async function handleDisconnect(integrationId: string) {
-    await api.delete(`/oauth/meta/disconnect/${integrationId}`);
-    qc.invalidateQueries({ queryKey: ['integrations', activeProfile?.id] });
   }
 
   async function handleValidate() {
@@ -536,8 +443,6 @@ export function Integrations() {
       label: form.label || config.label,
       accountId: form.accountId || undefined,
       token: form.token || undefined,
-      appId: form.appId || undefined,
-      appSecret: form.appSecret || undefined,
       extraConfig: Object.keys(extraConfig).length > 0 ? extraConfig : undefined,
     });
   }
@@ -634,8 +539,8 @@ export function Integrations() {
               <MetaTokenGuide />
             )}
 
-            {/* Validação Meta — só aparece se usou token direto (legado) */}
-            {selectedType === 'META_BMS' && form.token && !form.appId && (
+            {/* Validação Meta */}
+            {selectedType === 'META_BMS' && form.token && (
               <div className="space-y-2">
                 <Button
                   variant="outline"
@@ -645,47 +550,27 @@ export function Integrations() {
                   className="gap-1.5"
                 >
                   <RefreshCw className={cn('h-3.5 w-3.5', validating && 'animate-spin')} />
-                  {validating ? 'Validando...' : 'Validar Token e Conta'}
+                  {validating ? 'Validando...' : 'Testar Token'}
                 </Button>
 
                 {validateResult && (
-                  <div className="space-y-2">
-                    {/* Token OK */}
-                    <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-3 space-y-1.5">
-                      <div className="flex items-center gap-2 text-sm text-emerald-400 font-medium">
-                        <CheckCircle2 className="h-4 w-4" />
-                        Token válido! Permissões confirmadas.
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        Usuário: <strong className="text-foreground">{validateResult.userName}</strong>
-                      </p>
-                      <div className="flex flex-wrap gap-1">
-                        {validateResult.permissions.map(p => (
-                          <span key={p} className={`text-[10px] rounded px-1.5 py-0.5 font-mono ${
-                            ['ads_read','ads_management'].includes(p)
-                              ? 'bg-emerald-500/20 text-emerald-400'
-                              : 'bg-muted text-muted-foreground'
-                          }`}>{p}</span>
-                        ))}
-                      </div>
-                      {validateResult.accountName && (
-                        <p className="text-xs text-emerald-400/80 pt-0.5">
-                          Conta verificada: <strong>{validateResult.accountName}</strong>
-                          {validateResult.currency && ` · ${validateResult.currency}`}
-                        </p>
-                      )}
+                  <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-3 space-y-1.5">
+                    <div className="flex items-center gap-2 text-sm text-emerald-400 font-medium">
+                      <CheckCircle2 className="h-4 w-4" />
+                      Token válido! Permissões confirmadas.
                     </div>
-
-                    {/* Aviso de conta (não bloqueia salvar) */}
-                    {validateResult.accountWarning && (
-                      <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 p-3 flex items-start gap-2">
-                        <AlertCircle className="h-4 w-4 text-amber-400 mt-0.5 flex-shrink-0" />
-                        <div className="text-xs text-amber-300 space-y-1">
-                          <p className="font-medium">Aviso sobre acesso à conta</p>
-                          <p>{validateResult.accountWarning}</p>
-                        </div>
-                      </div>
-                    )}
+                    <p className="text-xs text-muted-foreground">
+                      Usuário: <strong className="text-foreground">{validateResult.userName}</strong>
+                    </p>
+                    <div className="flex flex-wrap gap-1">
+                      {validateResult.permissions.map(p => (
+                        <span key={p} className={`text-[10px] rounded px-1.5 py-0.5 font-mono ${
+                          ['ads_read','ads_management'].includes(p)
+                            ? 'bg-emerald-500/20 text-emerald-400'
+                            : 'bg-muted text-muted-foreground'
+                        }`}>{p}</span>
+                      ))}
+                    </div>
                   </div>
                 )}
                 {validateError && (
@@ -707,27 +592,6 @@ export function Integrations() {
             </div>
           </CardContent>
         </Card>
-      )}
-
-      {/* Banner OAuth */}
-      {oauthMessage && (
-        <div className={cn(
-          'flex items-start gap-3 rounded-xl border p-4',
-          oauthMessage.type === 'success'
-            ? 'bg-emerald-500/10 border-emerald-500/30'
-            : 'bg-red-500/10 border-red-500/30'
-        )}>
-          {oauthMessage.type === 'success'
-            ? <CheckCircle2 className="h-5 w-5 text-emerald-400 mt-0.5 flex-shrink-0" />
-            : <AlertCircle className="h-5 w-5 text-red-400 mt-0.5 flex-shrink-0" />}
-          <div className="flex-1">
-            <p className={cn('text-sm font-medium', oauthMessage.type === 'success' ? 'text-emerald-400' : 'text-red-400')}>
-              {oauthMessage.type === 'success' ? 'Conectado com sucesso!' : 'Erro na conexão'}
-            </p>
-            <p className="text-xs text-muted-foreground mt-0.5">{oauthMessage.text}</p>
-          </div>
-          <button onClick={() => setOauthMessage(null)} className="text-muted-foreground hover:text-foreground text-xs">✕</button>
-        </div>
       )}
 
       {/* Lista de integrações */}
