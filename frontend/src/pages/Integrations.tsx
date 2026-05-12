@@ -345,7 +345,13 @@ export function Integrations() {
   const [selectedType, setSelectedType] = useState<PlatformType>('META_BMS');
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const [validating, setValidating] = useState(false);
-  const [validateResult, setValidateResult] = useState<{ accountName: string; currency: string; userName: string; permissions: string[] } | null>(null);
+  const [validateResult, setValidateResult] = useState<{
+    accountName: string | null;
+    currency: string | null;
+    userName: string;
+    permissions: string[];
+    accountWarning?: string;
+  } | null>(null);
   const [validateError, setValidateError] = useState<string | null>(null);
 
   const [form, setForm] = useState<Record<string, string>>({
@@ -548,16 +554,43 @@ export function Integrations() {
                 </Button>
 
                 {validateResult && (
-                  <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-3 space-y-1">
-                    <div className="flex items-center gap-2 text-sm text-emerald-400 font-medium">
-                      <CheckCircle2 className="h-4 w-4" />
-                      Token válido com permissões corretas!
+                  <div className="space-y-2">
+                    {/* Token OK */}
+                    <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-3 space-y-1.5">
+                      <div className="flex items-center gap-2 text-sm text-emerald-400 font-medium">
+                        <CheckCircle2 className="h-4 w-4" />
+                        Token válido! Permissões confirmadas.
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Usuário: <strong className="text-foreground">{validateResult.userName}</strong>
+                      </p>
+                      <div className="flex flex-wrap gap-1">
+                        {validateResult.permissions.map(p => (
+                          <span key={p} className={`text-[10px] rounded px-1.5 py-0.5 font-mono ${
+                            ['ads_read','ads_management'].includes(p)
+                              ? 'bg-emerald-500/20 text-emerald-400'
+                              : 'bg-muted text-muted-foreground'
+                          }`}>{p}</span>
+                        ))}
+                      </div>
+                      {validateResult.accountName && (
+                        <p className="text-xs text-emerald-400/80 pt-0.5">
+                          Conta verificada: <strong>{validateResult.accountName}</strong>
+                          {validateResult.currency && ` · ${validateResult.currency}`}
+                        </p>
+                      )}
                     </div>
-                    <p className="text-xs text-muted-foreground">
-                      Usuário: <strong className="text-foreground">{validateResult.userName}</strong>
-                      {' '}· Conta: <strong className="text-foreground">{validateResult.accountName}</strong>
-                      {' '}· Moeda: <strong className="text-foreground">{validateResult.currency}</strong>
-                    </p>
+
+                    {/* Aviso de conta (não bloqueia salvar) */}
+                    {validateResult.accountWarning && (
+                      <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 p-3 flex items-start gap-2">
+                        <AlertCircle className="h-4 w-4 text-amber-400 mt-0.5 flex-shrink-0" />
+                        <div className="text-xs text-amber-300 space-y-1">
+                          <p className="font-medium">Aviso sobre acesso à conta</p>
+                          <p>{validateResult.accountWarning}</p>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
                 {validateError && (

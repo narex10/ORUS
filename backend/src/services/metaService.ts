@@ -297,24 +297,31 @@ export async function syncMetaIntegration(integrationId: string): Promise<{
 }
 
 // ─── Valida token e retorna info da conta ─────────────────────
+// Fase 1: valida token + permissões (não testa conta — isso é feito no sync)
+// Fase 2 (opcional): tenta ler a conta, mas retorna aviso se falhar
 
 export async function validateMetaToken(token: string, accountId: string): Promise<{
-  accountName: string;
-  currency: string;
+  accountName: string | null;
+  currency: string | null;
   userName: string;
   valid: boolean;
   permissions: string[];
+  accountWarning?: string;
 }> {
-  // 1. Valida o token em si (sempre funciona se o token for válido)
+  // ── Passo 1: Verifica se o token é válido (/me) ──────────────
   const meRes = await fetch(
     `${META_API}/me?fields=id,name&access_token=${encodeURIComponent(token)}`
   );
   const meData = await meRes.json() as any;
   if (meData.error) {
-    throw new Error(`Token inválido: ${meData.error.message}`);
+    const msg = meData.error.message ?? '';
+    if (msg.includes('expired') || msg.includes('session')) {
+      throw new Error('Token expirado. Gere um novo token no Graph API Explorer.');
+    }
+    throw new Error(`Token inválido: ${msg}`);
   }
 
-  // 2. Verifica quais permissões o token tem
+  // ── Passo 2: Verifica permissões do token ────────────────────
   const permRes = await fetch(
     `${META_API}/me/permissions?access_token=${encodeURIComponent(token)}`
   );
@@ -323,34 +330,51 @@ export async function validateMetaToken(token: string, accountId: string): Promi
     .filter((p: any) => p.status === 'granted')
     .map((p: any) => p.permission as string);
 
-  const hasAdsRead = grantedPerms.includes('ads_read') || grantedPerms.includes('ads_management');
+  const hasAdsAccess =
+    grantedPerms.includes('ads_read') ||
+    grantedPerms.includes('ads_management');
 
-  if (!hasAdsRead) {
+  if (!hasAdsAccess) {
+    const current = grantedPerms.length > 0 ? grantedPerms.join(', ') : 'nenhuma';
     throw new Error(
-      `O token não tem permissão "ads_read". ` +
-      `Permissões atuais: ${grantedPerms.join(', ') || 'nenhuma'}. ` +
-      `Gere um novo token com a permissão ads_read no Graph API Explorer.`
+      `Permissão "ads_read" não encontrada neste token.\n` +
+      `Permissões atuais: ${current}.\n` +
+      `Volte ao Graph API Explorer, marque ads_read e ads_management, e gere o token novamente.`
     );
   }
 
-  // 3. Acessa os dados da conta de anúncios
+  // ── Passo 3: Tenta acessar a conta (sem bloquear se falhar) ──
   const id = accountId.startsWith('act_') ? accountId : `act_${accountId}`;
-  const acctRes = await fetch(
-    `${META_API}/${id}?fields=name,currency,account_status&access_token=${encodeURIComponent(token)}`
-  );
-  const acctData = await acctRes.json() as any;
-  if (acctData.error) {
-    throw new Error(
-      `Não foi possível acessar a conta ${id}: ${acctData.error.message}. ` +
-      `Verifique se o usuário tem acesso a esta conta no Business Manager.`
+  let accountName: string | null = null;
+  let currency: string | null = null;
+  let accountWarning: string | undefined;
+
+  try {
+    const acctRes = await fetch(
+      `${META_API}/${id}?fields=name,currency,account_status&access_token=${encodeURIComponent(token)}`
     );
+    const acctData = await acctRes.json() as any;
+
+    if (acctData.error) {
+      // Não bloqueia — retorna aviso em vez de erro
+      accountWarning = `Não foi possível ler a conta ${id}: ${acctData.error.message}. ` +
+        `O token e as permissões estão corretos. O sync tentará acessar a conta diretamente. ` +
+        `Se falhar, verifique se o App tem "Marketing API Standard Access" aprovado, ` +
+        `ou use um System User Token do Business Manager.`;
+    } else {
+      accountName = acctData.name;
+      currency = acctData.currency;
+    }
+  } catch {
+    accountWarning = 'Não foi possível verificar a conta agora. Salve e tente sincronizar.';
   }
 
   return {
-    accountName: acctData.name,
-    currency: acctData.currency,
+    accountName,
+    currency,
     userName: meData.name,
-    valid: acctData.account_status === 1,
+    valid: true,
     permissions: grantedPerms,
+    accountWarning,
   };
 }
