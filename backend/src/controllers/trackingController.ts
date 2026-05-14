@@ -1,6 +1,8 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma';
+import { upsertCrmLeadFromSiteConversion } from '../services/crmLeadSync';
+import { ORUS_TRACKED_QUERY_KEYS, getOrusUrlStandardPayload } from '../constants/orusAdUrlParams';
 const conversionSchema = z.object({
   trackingKey: z.string(),
   type: z.enum(['LEAD', 'PURCHASE', 'PAGEVIEW', 'CUSTOM']),
@@ -100,6 +102,30 @@ export async function receiveConversion(req: Request, res: Response) {
     },
   });
 
+  if (body.type === 'LEAD') {
+    try {
+      await upsertCrmLeadFromSiteConversion({
+        profileId: trackingKey.profileId,
+        phone: body.phone,
+        email: body.email,
+        fingerprint: body.fingerprint,
+        sessionId: body.sessionId,
+        pageUrl: body.pageUrl,
+        utmSource: body.utmSource,
+        utmMedium: body.utmMedium,
+        utmCampaign: body.utmCampaign,
+        utmContent: body.utmContent,
+        creativeId: body.creativeId,
+        adsetId: body.adsetId,
+        siteCampaignId: body.siteCampaignId,
+        siteCampaignName: body.siteCampaignName,
+        rawParams: body.rawParams ? JSON.stringify(body.rawParams) : null,
+      });
+    } catch (e) {
+      console.error('[CRM Zap] sync lead site', e);
+    }
+  }
+
   return res.json({ ok: true, conversionId: conversion.id });
 }
 
@@ -107,144 +133,143 @@ export async function getTrackingScript(req: Request, res: Response) {
   const { key } = req.params;
   const apiUrl = process.env.FRONTEND_URL?.replace('5173', '3001') ?? 'http://localhost:3001';
 
-  const script = generateTrackingScript(key, apiUrl);
+  // Busca config da chave para personalizar o script
+  const trackingKey = await prisma.trackingKey.findUnique({ where: { key } });
+  let config = { leads: true, pageviews: true, buttons: false, buttonSelector: '' };
+  if (trackingKey?.config) {
+    try { config = { ...config, ...JSON.parse(trackingKey.config) }; } catch {}
+  }
+
+  const script = generateTrackingScript(key, apiUrl, config);
 
   res.setHeader('Content-Type', 'application/javascript');
   res.setHeader('Cache-Control', 'public, max-age=3600');
   return res.send(script);
 }
 
-function generateTrackingScript(trackingKey: string, apiUrl: string): string {
-  return `
-/* ORUS Tracking Script v1.0 */
+export function getAdUrlStandard(req: Request, res: Response) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  const base = typeof req.query.base === 'string' ? req.query.base : undefined;
+  return res.json(getOrusUrlStandardPayload(base));
+}
+
+interface TrackingConfig {
+  leads: boolean;
+  pageviews: boolean;
+  buttons: boolean;
+  buttonSelector?: string;
+}
+
+function generateTrackingScript(trackingKey: string, apiUrl: string, cfg: TrackingConfig): string {
+  const autoLeads     = cfg.leads;
+  const autoPageviews = cfg.pageviews;
+  const autoButtons   = cfg.buttons;
+  const btnSelector   = cfg.buttonSelector || 'button[type="submit"], input[type="submit"], .orus-lead-btn';
+
+  return `/* ORUS Tracking Script v2.0 | key:${trackingKey} */
 (function(w, d, k, api) {
   'use strict';
+  var STORAGE_KEY = 'orus_p_' + k;
+  var SESSION_KEY = 'orus_s_' + k;
 
-  var STORAGE_KEY = 'orus_params_' + k;
-  var SESSION_KEY = 'orus_session_' + k;
+  function genId() { return Math.random().toString(36).slice(2) + Date.now().toString(36); }
 
-  // Gera ID de sessão único
-  function genId() {
-    return Math.random().toString(36).slice(2) + Date.now().toString(36);
+  function fingerprint() {
+    var s = [navigator.userAgent, screen.width + 'x' + screen.height,
+             Intl.DateTimeFormat().resolvedOptions().timeZone, navigator.language].join('|');
+    var h = 0;
+    for (var i = 0; i < s.length; i++) { h = ((h << 5) - h) + s.charCodeAt(i); h |= 0; }
+    return Math.abs(h).toString(36);
   }
 
-  // Fingerprint leve do dispositivo
-  function getFingerprint() {
-    var parts = [
-      navigator.userAgent,
-      screen.width + 'x' + screen.height,
-      Intl.DateTimeFormat().resolvedOptions().timeZone,
-      navigator.language
-    ];
-    var hash = 0, s = parts.join('|');
-    for (var i = 0; i < s.length; i++) {
-      hash = ((hash << 5) - hash) + s.charCodeAt(i);
-      hash |= 0;
-    }
-    return Math.abs(hash).toString(36);
-  }
-
-  // Extrai parâmetros da URL
   function getUrlParams() {
-    var params = {};
-    var search = w.location.search.slice(1);
-    if (!search) return params;
-    search.split('&').forEach(function(p) {
-      var kv = p.split('=');
-      if (kv[0]) params[decodeURIComponent(kv[0])] = decodeURIComponent(kv[1] || '');
-    });
-    return params;
+    var p = {}, s = w.location.search.slice(1);
+    if (!s) return p;
+    s.split('&').forEach(function(x) { var kv = x.split('='); if (kv[0]) p[decodeURIComponent(kv[0])] = decodeURIComponent(kv[1] || ''); });
+    return p;
   }
 
-  // Suporte a cloaker: lê token do localStorage se presente
   function getCloakerToken() {
-    try {
-      return localStorage.getItem('_cloaker_token') ||
-             localStorage.getItem('cloaker_token') ||
-             localStorage.getItem('ct') ||
-             sessionStorage.getItem('ct') || null;
-    } catch(e) { return null; }
+    try { return localStorage.getItem('_cloaker_token') || localStorage.getItem('ct') || sessionStorage.getItem('ct') || null; } catch(e) { return null; }
   }
 
-  // Persiste params no localStorage (sobrevive a redirects do cloaker)
   function saveParams(params) {
-    try {
-      var stored = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-      var merged = Object.assign({}, stored, params);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
-    } catch(e) {}
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(Object.assign({}, loadParams(), params))); } catch(e) {}
   }
 
   function loadParams() {
-    try {
-      return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-    } catch(e) { return {}; }
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch(e) { return {}; }
   }
 
   function getSession() {
-    try {
-      var s = sessionStorage.getItem(SESSION_KEY);
-      if (!s) { s = genId(); sessionStorage.setItem(SESSION_KEY, s); }
-      return s;
-    } catch(e) { return genId(); }
+    try { var s = sessionStorage.getItem(SESSION_KEY); if (!s) { s = genId(); sessionStorage.setItem(SESSION_KEY, s); } return s; } catch(e) { return genId(); }
   }
 
-  // Captura e persiste parâmetros ao carregar
   var urlParams = getUrlParams();
-  var tracked = {};
-  var TRACKED_KEYS = ['bm', 'utm_campaign', 'utm_content', 'utm_source', 'utm_medium',
-                      'creative_id', 'adset_id', 'site_campaign_id', 'site_campaign_name',
-                      'fbclid', 'ttclid', 'gclid'];
-
-  TRACKED_KEYS.forEach(function(k) {
-    if (urlParams[k]) tracked[k] = urlParams[k];
-  });
-
-  if (Object.keys(tracked).length > 0) saveParams(tracked);
+  var TRACKED = ${JSON.stringify([...ORUS_TRACKED_QUERY_KEYS])};
+  var captured = {};
+  TRACKED.forEach(function(key) { if (urlParams[key]) captured[key] = urlParams[key]; });
+  if (Object.keys(captured).length) saveParams(captured);
 
   var allParams = loadParams();
 
-  // Função principal de envio
-  function sendConversion(type, data) {
+  function send(type, extra) {
     var payload = {
-      trackingKey: k,
-      type: type,
+      trackingKey: k, type: type,
       bmId: allParams['bm'],
-      utmCampaign: allParams['utm_campaign'],
-      utmContent: allParams['utm_content'],
-      utmSource: allParams['utm_source'],
-      utmMedium: allParams['utm_medium'],
-      creativeId: allParams['creative_id'],
-      adsetId: allParams['adset_id'],
-      siteCampaignId: allParams['site_campaign_id'],
-      siteCampaignName: allParams['site_campaign_name'],
-      sessionId: getSession(),
-      fingerprint: getFingerprint(),
-      referrer: d.referrer,
-      pageUrl: w.location.href,
-      cloakerToken: getCloakerToken(),
-      rawParams: Object.assign({}, allParams, urlParams)
+      utmCampaign: allParams['utm_campaign'], utmContent: allParams['utm_content'],
+      utmSource: allParams['utm_source'], utmMedium: allParams['utm_medium'],
+      creativeId: allParams['creative_id'], adsetId: allParams['adset_id'],
+      siteCampaignId: allParams['site_campaign_id'], siteCampaignName: allParams['site_campaign_name'],
+      sessionId: getSession(), fingerprint: fingerprint(),
+      referrer: d.referrer, pageUrl: w.location.href,
+      cloakerToken: getCloakerToken(), rawParams: Object.assign({}, allParams, urlParams)
     };
-
-    if (data) Object.assign(payload, data);
-
+    if (extra) Object.assign(payload, extra);
     var xhr = new XMLHttpRequest();
     xhr.open('POST', api + '/api/tracking/conversion', true);
     xhr.setRequestHeader('Content-Type', 'application/json');
     xhr.send(JSON.stringify(payload));
   }
 
-  // API pública
+  // ── API pública ──────────────────────────────────────────────
   w.orus = {
-    lead: function(data) { sendConversion('LEAD', data); },
-    purchase: function(data) { sendConversion('PURCHASE', data); },
-    pageview: function() { sendConversion('PAGEVIEW', {}); },
-    custom: function(data) { sendConversion('CUSTOM', data); }
+    lead:     function(data) { send('LEAD', data); },
+    purchase: function(data) { send('PURCHASE', data); },
+    pageview: function()     { send('PAGEVIEW', {}); },
+    custom:   function(data) { send('CUSTOM', data); },
+    button:   function(label, data) { send('CUSTOM', Object.assign({ buttonLabel: label }, data)); }
   };
 
-  // Auto pageview
-  sendConversion('PAGEVIEW', {});
+  ${autoPageviews ? '// Auto pageview\n  send(\'PAGEVIEW\', {});' : '// Pageview automático desativado'}
 
-})(window, document, '${trackingKey}', '${apiUrl}');
-`.trim();
+  ${autoLeads ? `// Auto lead — detecta submit de formulários
+  d.addEventListener('submit', function(e) {
+    var form = e.target;
+    var email = '', phone = '';
+    try {
+      var emailEl = form.querySelector('input[type="email"], input[name*="email"], input[name*="mail"]');
+      var phoneEl = form.querySelector('input[type="tel"], input[name*="phone"], input[name*="fone"], input[name*="whatsapp"]');
+      if (emailEl) email = emailEl.value;
+      if (phoneEl) phone = phoneEl.value;
+    } catch(ex) {}
+    send('LEAD', { email: email || undefined, phone: phone || undefined });
+  }, true);` : '// Captura de formulários desativada'}
+
+  ${autoButtons ? `// Auto button tracking — seletor: ${btnSelector}
+  d.addEventListener('click', function(e) {
+    var el = e.target;
+    while (el && el !== d.body) {
+      if (el.matches && el.matches(${JSON.stringify(btnSelector)})) {
+        send('LEAD', { buttonLabel: el.innerText || el.value || el.getAttribute('aria-label') || '' });
+        break;
+      }
+      el = el.parentElement;
+    }
+  }, true);` : '// Rastreamento de botões desativado'}
+
+})(window, document, '${trackingKey}', '${apiUrl}');`.trim();
 }

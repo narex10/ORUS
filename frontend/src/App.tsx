@@ -10,6 +10,9 @@ import { Creatives } from '@/pages/Creatives';
 import { Audiences } from '@/pages/Audiences';
 import { Rules } from '@/pages/Rules';
 import { Integrations } from '@/pages/Integrations';
+import { SiteTracking } from '@/pages/SiteTracking';
+import { AudienceFunnel } from '@/pages/AudienceFunnel';
+import { CrmZap } from '@/pages/CrmZap';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -49,6 +52,9 @@ export default function App() {
             <Route path="audiences" element={<Audiences />} />
             <Route path="rules" element={<Rules />} />
             <Route path="integrations" element={<Integrations />} />
+            <Route path="tracking" element={<SiteTracking />} />
+            <Route path="audience-funnel" element={<AudienceFunnel />} />
+            <Route path="crm-zap" element={<CrmZap />} />
           </Route>
 
           <Route path="*" element={<Navigate to="/dashboard" replace />} />

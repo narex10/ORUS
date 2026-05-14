@@ -292,6 +292,12 @@ export async function syncMetaIntegration(integrationId: string): Promise<{
       getActionValue(ins.actions, 'offsite_conversion.fb_pixel_purchase');
     const leads = getActionValue(ins.actions, 'complete_registration');
     const pageViews = getActionValue(ins.actions, 'landing_page_view');
+    const messages = getActionValue(ins.actions, 'onsite_conversion.messaging_conversation_started_7d') +
+      getActionValue(ins.actions, 'messaging_conversation_started_7d');
+    // instagram_profile_visit: válido para campanhas com objetivo de visita ao perfil IG
+    const instagramVisits   = getActionValue(ins.actions, 'instagram_profile_visit');
+    // page_engagement: agrupado da Meta (reações + comentários + compartilhamentos + visitas à página)
+    const fanpageEngagement = getActionValue(ins.actions, 'page_engagement');
     const revenue = getActionValue(ins.action_values, 'purchase') +
       getActionValue(ins.action_values, 'offsite_conversion.fb_pixel_purchase');
 
@@ -300,30 +306,25 @@ export async function syncMetaIntegration(integrationId: string): Promise<{
       update: {
         impressions: parseInt(ins.impressions ?? '0'),
         clicks: parseInt(ins.clicks ?? '0'),
-        pageViews,
+        pageViews, messages, instagramVisits, fanpageEngagement,
         spend,
         reach: parseInt(ins.reach ?? '0'),
         cpm: parseFloat(ins.cpm ?? '0'),
         ctr: parseFloat(ins.ctr ?? '0'),
-        purchases,
-        leads,
-        revenue,
+        purchases, leads, revenue,
         roas: spend > 0 ? revenue / spend : 0,
         cpa: purchases > 0 ? spend / purchases : 0,
       },
       create: {
-        campaignId: campaign.id,
-        date,
+        campaignId: campaign.id, date,
         impressions: parseInt(ins.impressions ?? '0'),
         clicks: parseInt(ins.clicks ?? '0'),
-        pageViews,
+        pageViews, messages, instagramVisits, fanpageEngagement,
         spend,
         reach: parseInt(ins.reach ?? '0'),
         cpm: parseFloat(ins.cpm ?? '0'),
         ctr: parseFloat(ins.ctr ?? '0'),
-        purchases,
-        leads,
-        revenue,
+        purchases, leads, revenue,
         roas: spend > 0 ? revenue / spend : 0,
         cpa: purchases > 0 ? spend / purchases : 0,
       },
@@ -354,17 +355,29 @@ export async function syncMetaIntegration(integrationId: string): Promise<{
     const revenue = getActionValue(ins.action_values, 'purchase') +
       getActionValue(ins.action_values, 'offsite_conversion.fb_pixel_purchase');
 
+    const adPageViews        = getActionValue(ins.actions, 'landing_page_view');
+    const adMessages         = getActionValue(ins.actions, 'onsite_conversion.messaging_conversation_started_7d') +
+                               getActionValue(ins.actions, 'messaging_conversation_started_7d');
+    const adInstagramVisits  = getActionValue(ins.actions, 'instagram_profile_visit');
+    const adFanpageEngagement= getActionValue(ins.actions, 'page_engagement');
+    const adVideoViews       = getActionValue(ins.actions, 'video_view');
+
     const adMetricData = {
-      impressions: parseInt(ins.impressions ?? '0'),
-      clicks: parseInt(ins.clicks ?? '0'),
+      impressions:      parseInt(ins.impressions ?? '0'),
+      clicks:           parseInt(ins.clicks ?? '0'),
+      pageViews:        adPageViews,
+      messages:         adMessages,
+      instagramVisits:  adInstagramVisits,
+      fanpageEngagement:adFanpageEngagement,
+      videoViews:       adVideoViews,
       spend,
-      cpm: parseFloat(ins.cpm ?? '0'),
-      ctr: parseFloat(ins.ctr ?? '0'),
+      cpm:             parseFloat(ins.cpm ?? '0'),
+      ctr:             parseFloat(ins.ctr ?? '0'),
       leads,
       purchases,
       revenue,
       roas: spend > 0 ? revenue / spend : 0,
-      cpa: leads > 0 ? spend / leads : 0,
+      cpa:  leads > 0 ? spend / leads : 0,
     };
 
     await prisma.adMetric.upsert({
@@ -381,6 +394,113 @@ export async function syncMetaIntegration(integrationId: string): Promise<{
   });
 
   return { campaigns: campaignCount, adSets: adSetCount, ads: adCount, metrics: metricCount };
+}
+
+// ─── Ações na Meta API (pause / budget / duplicate) ──────────
+
+async function getTokenForCampaign(campaignId: string): Promise<{ token: string; accountId: string }> {
+  const campaign = await prisma.campaign.findUnique({
+    where: { id: campaignId },
+    include: { integration: true },
+  });
+  if (!campaign?.integration?.encryptedToken) throw new Error('Token não encontrado para esta campanha');
+  const token = decrypt(campaign.integration.encryptedToken);
+  const accountId = campaign.integration.accountId?.startsWith('act_')
+    ? campaign.integration.accountId
+    : `act_${campaign.integration.accountId}`;
+  return { token, accountId };
+}
+
+async function getTokenForAdSet(adSetId: string): Promise<{ token: string }> {
+  const adSet = await prisma.adSet.findUnique({
+    where: { id: adSetId },
+    include: { campaign: { include: { integration: true } } },
+  });
+  if (!adSet?.campaign?.integration?.encryptedToken) throw new Error('Token não encontrado para este conjunto');
+  return { token: decrypt(adSet.campaign.integration.encryptedToken) };
+}
+
+export async function pauseMetaObject(
+  entityId: string,
+  entityType: 'campaign' | 'adset',
+  newStatus: 'ACTIVE' | 'PAUSED'
+): Promise<void> {
+  let externalId: string;
+  let token: string;
+
+  if (entityType === 'campaign') {
+    const campaign = await prisma.campaign.findUnique({
+      where: { id: entityId },
+      include: { integration: true },
+    });
+    if (!campaign) throw new Error('Campanha não encontrada');
+    externalId = campaign.externalId;
+    token = decrypt(campaign.integration.encryptedToken!);
+  } else {
+    const adSet = await prisma.adSet.findUnique({
+      where: { id: entityId },
+      include: { campaign: { include: { integration: true } } },
+    });
+    if (!adSet) throw new Error('Conjunto não encontrado');
+    externalId = adSet.externalId;
+    token = decrypt(adSet.campaign.integration.encryptedToken!);
+  }
+
+  const res = await fetch(`${META_API}/${externalId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status: newStatus, access_token: token }),
+  });
+  const data = await res.json() as any;
+  if (data.error) throw new Error(translateMetaError(data));
+
+  // Atualiza status local
+  if (entityType === 'campaign') {
+    await prisma.campaign.update({ where: { id: entityId }, data: { status: newStatus } });
+  } else {
+    await prisma.adSet.update({ where: { id: entityId }, data: { status: newStatus } });
+  }
+}
+
+export async function updateMetaBudget(
+  campaignId: string,
+  dailyBudgetBRL: number
+): Promise<void> {
+  const campaign = await prisma.campaign.findUnique({
+    where: { id: campaignId },
+    include: { integration: true },
+  });
+  if (!campaign?.integration?.encryptedToken) throw new Error('Token não encontrado');
+  const token = decrypt(campaign.integration.encryptedToken);
+  const centavos = Math.round(dailyBudgetBRL * 100).toString();
+
+  const res = await fetch(`${META_API}/${campaign.externalId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ daily_budget: centavos, access_token: token }),
+  });
+  const data = await res.json() as any;
+  if (data.error) throw new Error(translateMetaError(data));
+
+  await prisma.campaign.update({ where: { id: campaignId }, data: { dailyBudget: dailyBudgetBRL } });
+}
+
+export async function duplicateMetaCampaign(campaignId: string): Promise<string> {
+  const campaign = await prisma.campaign.findUnique({
+    where: { id: campaignId },
+    include: { integration: true },
+  });
+  if (!campaign?.integration?.encryptedToken) throw new Error('Token não encontrado');
+  const token = decrypt(campaign.integration.encryptedToken);
+
+  const res = await fetch(`${META_API}/${campaign.externalId}/copies`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ deep_copy: true, status_option: 'PAUSED', access_token: token }),
+  });
+  const data = await res.json() as any;
+  if (data.error) throw new Error(translateMetaError(data));
+  return data.copied_campaign_id ?? data.id ?? '';
 }
 
 // ─── Diagnóstico de acesso à conta de anúncios ───────────────

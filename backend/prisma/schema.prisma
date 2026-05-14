@@ -62,6 +62,12 @@ model Profile {
   audiences    Audience[]
   rules        AutomationRule[]
   trackingKeys TrackingKey[]
+  crmStages    CrmStage[]
+  crmLeads     CrmLead[]
+
+  // CRM Zap (WhatsApp + pixel)
+  crmZapPixelId       String?
+  crmZapInboundToken  String?  @unique
 
   @@unique([userId, slug])
   @@index([userId])
@@ -170,10 +176,13 @@ model CampaignMetric {
   campaignId  String
   date        DateTime
   impressions Int      @default(0)
-  clicks      Int      @default(0)
-  pageViews   Int      @default(0)
-  spend       Float    @default(0)
-  reach       Int      @default(0)
+  clicks          Int      @default(0)
+  pageViews       Int      @default(0)
+  messages        Int      @default(0)
+  instagramVisits   Int      @default(0)
+  fanpageEngagement Int      @default(0)
+  spend             Float    @default(0)
+  reach             Int      @default(0)
   cpm         Float?
   ctr         Float?
   revenue     Float    @default(0)
@@ -212,21 +221,25 @@ model AdSetMetric {
 }
 
 model AdMetric {
-  id          String   @id @default(cuid())
-  adId        String
-  date        DateTime
-  impressions Int      @default(0)
-  clicks      Int      @default(0)
-  spend       Float    @default(0)
-  videoViews  Int      @default(0)
-  hookRate    Float?
-  cpm         Float?
-  ctr         Float?
-  revenue     Float    @default(0)
-  purchases   Int      @default(0)
-  leads       Int      @default(0)
-  roas        Float?
-  cpa         Float?
+  id              String   @id @default(cuid())
+  adId            String
+  date            DateTime
+  impressions      Int      @default(0)
+  clicks           Int      @default(0)
+  pageViews        Int      @default(0)
+  messages         Int      @default(0)
+  instagramVisits  Int      @default(0)
+  fanpageEngagement Int     @default(0)
+  spend            Float    @default(0)
+  videoViews       Int      @default(0)
+  hookRate         Float?
+  cpm             Float?
+  ctr             Float?
+  revenue         Float    @default(0)
+  purchases       Int      @default(0)
+  leads           Int      @default(0)
+  roas            Float?
+  cpa             Float?
 
   ad Ad @relation(fields: [adId], references: [id], onDelete: Cascade)
 
@@ -242,6 +255,7 @@ model TrackingKey {
   profileId String
   key       String   @unique @default(cuid())
   label     String?
+  config    String?  // JSON: { leads, pageviews, buttons, buttonSelector }
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
 
@@ -294,6 +308,64 @@ model SiteConversion {
   @@index([profileId, createdAt])
   @@index([siteCampaignId])
   @@map("site_conversions")
+}
+
+// ─── CRM Zap (WhatsApp + atribuição) ─────────────────────────
+
+model CrmStage {
+  id        String   @id @default(cuid())
+  profileId String
+  name      String
+  slug      String
+  sortOrder Int      @default(0)
+  color     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  profile Profile   @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  leads   CrmLead[]
+
+  @@unique([profileId, slug])
+  @@index([profileId, sortOrder])
+  @@map("crm_stages")
+}
+
+model CrmLead {
+  id        String   @id @default(cuid())
+  profileId String
+  stageId   String
+
+  /// SITE | WHATSAPP | MANUAL
+  source        String   @default("WHATSAPP")
+  phone        String
+  name         String?
+  firstMessage String?
+
+  sourceUrl   String?
+  utmSource   String?
+  utmMedium   String?
+  utmCampaign String?
+  utmContent  String?
+  utmTerm     String?
+  fbclid      String?
+  gclid       String?
+  siteCampaignId   String?
+  siteCampaignName String?
+  rawParams String?
+
+  purchaseValue           Float?
+  purchaseAt              DateTime?
+  pixelPurchaseFiredAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  profile Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  stage   CrmStage @relation(fields: [stageId], references: [id], onDelete: Restrict)
+
+  @@index([profileId, stageId])
+  @@index([profileId, phone])
+  @@map("crm_leads")
 }
 
 // ─── Audiences ───────────────────────────────────────────────

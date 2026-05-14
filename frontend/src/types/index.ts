@@ -46,16 +46,39 @@ export interface Campaign {
   ctr: number;
   cpm: number;
   roas: number;
+  roi: number;
   cpa: number;
+  pageViews: number;
+  messages: number;
 }
 
 export interface CampaignFunnel {
+  // Meta Ads
   clicks: number;
   pageViews: number;
   leads: number;
-  realLeads: number;
+  messages: number;
+  instagramVisits: number;
   purchases: number;
+  // Site
+  realPageViews: number;
+  realLeads: number;
+  realMessages: number;
   realPurchases: number;
+}
+
+export type FunnelMetricId =
+  | 'clicks' | 'pageViews' | 'leads' | 'messages' | 'instagramVisits' | 'purchases'
+  | 'realPageViews' | 'realLeads' | 'realMessages' | 'realPurchases';
+
+export interface FunnelMetricDef {
+  id: FunnelMetricId;
+  label: string;
+  sublabel: string;
+  color: string;
+  bg: string;
+  iconName: string;
+  siteOnly?: boolean;
 }
 
 export interface DashboardKPIs {
@@ -63,6 +86,7 @@ export interface DashboardKPIs {
   revenue: number;
   purchases: number;
   leads: number;
+  messages: number;
   roas: number;
   cpa: number;
 }
@@ -73,6 +97,7 @@ export interface DashboardChart {
   revenue: number;
   leads: number;
   purchases: number;
+  messages: number;
 }
 
 export interface DashboardData {

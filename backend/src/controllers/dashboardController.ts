@@ -35,7 +35,15 @@ export async function getDashboard(req: AuthRequest, res: Response) {
         campaign: { profileId },
         date: { gte: from, lte: to },
       },
-      _sum: { spend: true, revenue: true, purchases: true, leads: true, clicks: true, impressions: true },
+      _sum: {
+        spend: true,
+        revenue: true,
+        purchases: true,
+        leads: true,
+        clicks: true,
+        impressions: true,
+        messages: true,
+      },
     }),
 
     prisma.siteConversion.groupBy({
@@ -53,6 +61,7 @@ export async function getDashboard(req: AuthRequest, res: Response) {
   const totalRevenue = metrics._sum.revenue ?? 0;
   const totalPurchases = metrics._sum.purchases ?? 0;
   const totalLeads = metrics._sum.leads ?? 0;
+  const totalMessages = metrics._sum.messages ?? 0;
 
   const realLeads = conversions.find(c => c.type === 'LEAD')?._count.id ?? 0;
   const realPurchases = conversions.find(c => c.type === 'PURCHASE')?._count.id ?? 0;
@@ -70,7 +79,7 @@ export async function getDashboard(req: AuthRequest, res: Response) {
       campaign: { profileId },
       date: { gte: from, lte: to },
     },
-    _sum: { spend: true, revenue: true, leads: true, purchases: true },
+    _sum: { spend: true, revenue: true, leads: true, purchases: true, messages: true },
     orderBy: { date: 'asc' },
   });
 
@@ -89,6 +98,7 @@ export async function getDashboard(req: AuthRequest, res: Response) {
       revenue: realRevenue || totalRevenue,
       purchases: realPurchases || totalPurchases,
       leads: realLeads || totalLeads,
+      messages: totalMessages,
       roas: Math.round(roas * 100) / 100,
       cpa: Math.round(cpa * 100) / 100,
     },
@@ -98,6 +108,7 @@ export async function getDashboard(req: AuthRequest, res: Response) {
       revenue: d._sum.revenue ?? 0,
       leads: d._sum.leads ?? 0,
       purchases: d._sum.purchases ?? 0,
+      messages: d._sum.messages ?? 0,
     })),
     period: { from, to },
   });

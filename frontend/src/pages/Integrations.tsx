@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  Plus, Trash2, Copy, Check, Code2, RefreshCw,
+  Plus, Trash2, Copy, Check, RefreshCw,
   CheckCircle2, AlertCircle, Clock, ChevronDown, ChevronUp, ExternalLink
 } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { api } from '@/lib/api';
-import { Integration, TrackingKey } from '@/types';
+import { Integration } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -494,11 +494,7 @@ export function Integrations() {
     enabled: !!activeProfile,
   });
 
-  const { data: trackingKeys } = useQuery<TrackingKey[]>({
-    queryKey: ['tracking-keys', activeProfile?.id],
-    queryFn: () => api.get(`/integrations/profile/${activeProfile!.id}/tracking-keys`).then(r => r.data),
-    enabled: !!activeProfile,
-  });
+
 
   const createIntegration = useMutation({
     mutationFn: (body: Record<string, unknown>) =>
@@ -520,11 +516,7 @@ export function Integrations() {
     },
   });
 
-  const createTrackingKey = useMutation({
-    mutationFn: () =>
-      api.post(`/integrations/profile/${activeProfile!.id}/tracking-keys`, { label: 'Site Principal' }).then(r => r.data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['tracking-keys', activeProfile?.id] }),
-  });
+
 
   async function handleSync(integrationId: string) {
     setSyncingId(integrationId);
@@ -766,54 +758,6 @@ export function Integrations() {
         )}
       </div>
 
-      {/* Tracking Keys */}
-      <div>
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
-            <Code2 className="h-4 w-4" />
-            Rastreamento do Site
-          </h2>
-          <Button variant="outline" size="sm" onClick={() => createTrackingKey.mutate()}>
-            <Plus className="h-3.5 w-3.5" />
-            Gerar Key
-          </Button>
-        </div>
-
-        <div className="space-y-2">
-          {trackingKeys?.map(tk => (
-            <div key={tk.id} className="rounded-xl border border-border bg-card p-4">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-sm font-medium text-foreground">{tk.label ?? 'Tracking Key'}</span>
-                <Badge variant={tk.isActive ? 'success' : 'secondary'}>
-                  {tk.isActive ? 'Ativo' : 'Inativo'}
-                </Badge>
-              </div>
-
-              <div className="rounded-lg bg-muted/40 p-3 font-mono text-xs text-muted-foreground mb-2">
-                <div className="flex items-center justify-between gap-2">
-                  <code className="truncate text-emerald-400/90">
-                    {`<script src="${apiUrl}/api/tracking/script/${tk.key}.js"></script>`}
-                  </code>
-                  <CopyButton text={`<script src="${apiUrl}/api/tracking/script/${tk.key}.js"></script>`} />
-                </div>
-              </div>
-
-              <div className="rounded-lg bg-muted/40 p-3 font-mono text-xs space-y-1">
-                <p className="text-[10px] uppercase tracking-wider text-muted-foreground/50 mb-1.5">Como usar:</p>
-                <p><span className="text-violet-400">orus</span><span className="text-muted-foreground">.lead({'{'} email: <span className="text-emerald-400">"user@email.com"</span> {'}'})</span></p>
-                <p><span className="text-violet-400">orus</span><span className="text-muted-foreground">.purchase({'{'} value: <span className="text-blue-400">97.00</span> {'}'})</span></p>
-                <p className="text-muted-foreground/50 text-[10px] pt-1">Parâmetros UTM, BM e cloaker são capturados automaticamente.</p>
-              </div>
-            </div>
-          ))}
-
-          {(!trackingKeys || trackingKeys.length === 0) && (
-            <div className="flex h-20 items-center justify-center rounded-xl border border-dashed border-border">
-              <p className="text-sm text-muted-foreground">Gere uma key para rastrear cadastros e compras do seu site.</p>
-            </div>
-          )}
-        </div>
-      </div>
     </div>
   );
 }

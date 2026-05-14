@@ -23,7 +23,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
           <div className="h-2 w-2 rounded-full" style={{ backgroundColor: p.color }} />
           <span className="text-muted-foreground">{p.name}:</span>
           <span className="font-medium text-foreground">
-            {typeof p.value === 'number' && p.name !== 'Leads'
+            {typeof p.value === 'number' && !['Leads', 'Conversas'].includes(p.name)
               ? `R$ ${p.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
               : p.value}
           </span>
@@ -96,6 +96,10 @@ export function PerformanceChart({ data, currency = 'BRL' }: Props) {
             <Bar
               yAxisId="count" dataKey="leads" name="Leads"
               fill="#06b6d4" fillOpacity={0.7} radius={[3, 3, 0, 0]}
+            />
+            <Bar
+              yAxisId="count" dataKey="messages" name="Conversas"
+              fill="#14b8a6" fillOpacity={0.7} radius={[3, 3, 0, 0]}
             />
           </ComposedChart>
         </ResponsiveContainer>

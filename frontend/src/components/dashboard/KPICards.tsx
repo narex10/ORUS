@@ -1,4 +1,4 @@
-import { TrendingUp, TrendingDown, DollarSign, ShoppingCart, Users, Target, Zap, BarChart3 } from 'lucide-react';
+import { TrendingUp, TrendingDown, DollarSign, ShoppingCart, Users, Target, BarChart3, MessageCircle } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { DashboardKPIs } from '@/types';
 import { formatCurrency, formatNumber, formatROAS } from '@/lib/utils';
@@ -83,6 +83,13 @@ export function KPICards({ kpis, currency = 'BRL' }: Props) {
       color: 'bg-cyan-500/20 text-cyan-400',
     },
     {
+      title: 'Conversas iniciadas',
+      value: formatNumber(kpis.messages),
+      subtitle: 'Meta Ads (mensagens)',
+      icon: MessageCircle,
+      color: 'bg-teal-500/20 text-teal-400',
+    },
+    {
       title: 'CPA',
       value: formatCurrency(kpis.cpa, currency),
       subtitle: 'Custo por aquisição',
@@ -92,7 +99,7 @@ export function KPICards({ kpis, currency = 'BRL' }: Props) {
   ];
 
   return (
-    <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-6">
+    <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-7">
       {cards.map(card => (
         <KPICard key={card.title} {...card} />
       ))}

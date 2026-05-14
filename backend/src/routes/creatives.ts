@@ -25,12 +25,12 @@ router.get('/profile/:profileId', async (req: AuthRequest, res: Response) => {
       metrics: {
         where: { date: { gte: fromDate, lte: toDate } },
         select: {
-          spend: true,
-          clicks: true,
-          impressions: true,
-          leads: true,
-          purchases: true,
-          revenue: true,
+          spend: true, revenue: true,
+          impressions: true, clicks: true,
+          pageViews: true, messages: true,
+          instagramVisits: true, fanpageEngagement: true, videoViews: true,
+          leads: true, purchases: true,
+          cpm: true, ctr: true,
         },
       },
       adSet: {
@@ -46,20 +46,30 @@ router.get('/profile/:profileId', async (req: AuthRequest, res: Response) => {
     .map(ad => {
       const totals = ad.metrics.reduce(
         (acc, m) => ({
-          spend: acc.spend + m.spend,
-          clicks: acc.clicks + m.clicks,
-          impressions: acc.impressions + m.impressions,
-          leads: acc.leads + m.leads,
-          purchases: acc.purchases + m.purchases,
-          revenue: acc.revenue + m.revenue,
+          spend:          acc.spend + m.spend,
+          revenue:        acc.revenue + m.revenue,
+          impressions:    acc.impressions + m.impressions,
+          clicks:         acc.clicks + m.clicks,
+          pageViews:         acc.pageViews + ((m as any).pageViews ?? 0),
+          messages:          acc.messages + ((m as any).messages ?? 0),
+          instagramVisits:   acc.instagramVisits + ((m as any).instagramVisits ?? 0),
+          fanpageEngagement: acc.fanpageEngagement + ((m as any).fanpageEngagement ?? 0),
+          videoViews:        acc.videoViews + ((m as any).videoViews ?? 0),
+          leads:          acc.leads + m.leads,
+          purchases:      acc.purchases + m.purchases,
         }),
-        { spend: 0, clicks: 0, impressions: 0, leads: 0, purchases: 0, revenue: 0 }
+        { spend: 0, revenue: 0, impressions: 0, clicks: 0, pageViews: 0,
+          messages: 0, instagramVisits: 0, fanpageEngagement: 0, videoViews: 0, leads: 0, purchases: 0 }
       );
 
-      const ctr = totals.impressions > 0 ? (totals.clicks / totals.impressions) * 100 : 0;
-      const cpm = totals.impressions > 0 ? (totals.spend / totals.impressions) * 1000 : 0;
-      const cpr = totals.leads > 0 ? totals.spend / totals.leads : 0;
+      const ctr  = totals.impressions > 0 ? (totals.clicks / totals.impressions) * 100 : 0;
+      const cpm  = totals.impressions > 0 ? (totals.spend / totals.impressions) * 1000 : 0;
       const roas = totals.spend > 0 ? totals.revenue / totals.spend : 0;
+      // CPR por tipo de conversão
+      const cprLeads    = totals.leads > 0 ? totals.spend / totals.leads : 0;
+      const cprMessages = totals.messages > 0 ? totals.spend / totals.messages : 0;
+      const cprPageViews = totals.pageViews > 0 ? totals.spend / totals.pageViews : 0;
+      const cprPurchases = totals.purchases > 0 ? totals.spend / totals.purchases : 0;
 
       return {
         id: ad.id,
@@ -73,10 +83,13 @@ router.get('/profile/:profileId', async (req: AuthRequest, res: Response) => {
         campaignStatus: ad.adSet.campaign.status,
         adSetName: ad.adSet.name,
         ...totals,
-        ctr: Math.round(ctr * 100) / 100,
-        cpm: Math.round(cpm * 100) / 100,
-        cpr: Math.round(cpr * 100) / 100,
-        roas: Math.round(roas * 100) / 100,
+        ctr:         Math.round(ctr * 100) / 100,
+        cpm:         Math.round(cpm * 100) / 100,
+        roas:        Math.round(roas * 100) / 100,
+        cprLeads:    Math.round(cprLeads * 100) / 100,
+        cprMessages: Math.round(cprMessages * 100) / 100,
+        cprPageViews:Math.round(cprPageViews * 100) / 100,
+        cprPurchases:Math.round(cprPurchases * 100) / 100,
       };
     })
     .filter(ad => ad.impressions > 0);

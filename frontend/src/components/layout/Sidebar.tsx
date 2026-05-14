@@ -1,7 +1,7 @@
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Megaphone, ImagePlay, Users,
-  Zap, Plug, ChevronDown, Plus, LogOut, Settings
+  Zap, Plug, ChevronDown, Plus, LogOut, Radio, Filter, MessageCircle
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
@@ -13,7 +13,10 @@ const navItems = [
   { to: '/campaigns', icon: Megaphone, label: 'Anúncios' },
   { to: '/creatives', icon: ImagePlay, label: 'Criativos' },
   { to: '/audiences', icon: Users, label: 'Audiências' },
+  { to: '/audience-funnel', icon: Filter, label: 'Funil de Público' },
+  { to: '/crm-zap', icon: MessageCircle, label: 'CRM Zap' },
   { to: '/rules', icon: Zap, label: 'Automações' },
+  { to: '/tracking', icon: Radio, label: 'Rastreamento' },
   { to: '/integrations', icon: Plug, label: 'Integrações' },
 ];
 

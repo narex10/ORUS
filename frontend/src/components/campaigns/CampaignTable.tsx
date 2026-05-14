@@ -1,10 +1,9 @@
 import { useState } from 'react';
-import { ChevronDown, ChevronRight, Pause, Play } from 'lucide-react';
-import { Campaign } from '@/types';
+import { ChevronDown, ChevronRight } from 'lucide-react';
+import { Campaign, FunnelMetricId } from '@/types';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { formatCurrency, formatNumber, formatPercent, formatROAS } from '@/lib/utils';
-import { MiniFunnel } from './MiniFunnel';
+import { MiniFunnel, DEFAULT_FUNNEL_METRICS } from './MiniFunnel';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -14,6 +13,7 @@ interface Props {
   currency?: string;
   from: string;
   to: string;
+  funnelMetrics?: FunnelMetricId[];
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -27,7 +27,7 @@ function StatusBadge({ status }: { status: string }) {
   return <Badge variant={variant}>{label}</Badge>;
 }
 
-function CampaignRow({ campaign, currency, from, to }: { campaign: Campaign; currency: string; from: string; to: string }) {
+function CampaignRow({ campaign, currency, from, to, funnelMetrics }: { campaign: Campaign; currency: string; from: string; to: string; funnelMetrics: FunnelMetricId[] }) {
   const [expanded, setExpanded] = useState(false);
 
   const { data: funnel } = useQuery({
@@ -74,7 +74,7 @@ function CampaignRow({ campaign, currency, from, to }: { campaign: Campaign; cur
             {funnel ? (
               <div className="flex items-center gap-4">
                 <span className="text-xs text-muted-foreground font-medium">Mini Funil:</span>
-                <MiniFunnel funnel={funnel} />
+                <MiniFunnel funnel={funnel} selectedMetrics={funnelMetrics} />
               </div>
             ) : (
               <p className="text-xs text-muted-foreground">Carregando funil...</p>
@@ -86,7 +86,7 @@ function CampaignRow({ campaign, currency, from, to }: { campaign: Campaign; cur
   );
 }
 
-export function CampaignTable({ campaigns, currency = 'BRL', from, to }: Props) {
+export function CampaignTable({ campaigns, currency = 'BRL', from, to, funnelMetrics = DEFAULT_FUNNEL_METRICS }: Props) {
   const headers = [
     { label: 'Campanha', align: 'left' },
     { label: 'Status', align: 'left' },
@@ -124,7 +124,7 @@ export function CampaignTable({ campaigns, currency = 'BRL', from, to }: Props) 
             </tr>
           ) : (
             campaigns.map(c => (
-              <CampaignRow key={c.id} campaign={c} currency={currency} from={from} to={to} />
+              <CampaignRow key={c.id} campaign={c} currency={currency} from={from} to={to} funnelMetrics={funnelMetrics} />
             ))
           )}
         </tbody>
