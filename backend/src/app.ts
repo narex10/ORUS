@@ -12,7 +12,13 @@ const app = express();
 app.use(helmet());
 app.use(compression());
 app.use(cors({
-  origin: env.FRONTEND_URL,
+  origin: (origin, cb) => {
+    // Permite localhost em qualquer porta e requisições sem origin (ex: Postman)
+    if (!origin || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+      return cb(null, true);
+    }
+    cb(new Error(`CORS bloqueado: ${origin}`));
+  },
   credentials: true,
 }));
 

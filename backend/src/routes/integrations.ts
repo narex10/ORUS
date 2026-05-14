@@ -14,6 +14,13 @@ const createSchema = z.object({
   extraConfig: z.record(z.unknown()).optional(),
 });
 
+const updateSchema = z.object({
+  label: z.string().min(1).optional(),
+  accountId: z.string().optional(),
+  token: z.string().optional(),
+  extraConfig: z.record(z.unknown()).optional(),
+});
+
 router.get('/profile/:profileId', async (req: AuthRequest, res: Response) => {
   const profile = await prisma.profile.findFirst({
     where: { id: req.params.profileId, userId: req.userId! },
@@ -33,44 +40,92 @@ router.get('/profile/:profileId', async (req: AuthRequest, res: Response) => {
 });
 
 router.post('/profile/:profileId', async (req: AuthRequest, res: Response) => {
-  const profile = await prisma.profile.findFirst({
-    where: { id: req.params.profileId, userId: req.userId! },
-  });
-  if (!profile) return res.status(404).json({ error: 'Perfil não encontrado' });
+  try {
+    const profile = await prisma.profile.findFirst({
+      where: { id: req.params.profileId, userId: req.userId! },
+    });
+    if (!profile) return res.status(404).json({ error: 'Perfil não encontrado' });
 
-  const body = createSchema.parse(req.body);
+    const body = createSchema.parse(req.body);
+    const extraConfig: Record<string, unknown> = { ...(body.extraConfig ?? {}) };
 
-  const extraConfig: Record<string, unknown> = { ...(body.extraConfig ?? {}) };
+    const integration = await prisma.integration.create({
+      data: {
+        profileId: req.params.profileId,
+        type: body.type,
+        label: body.label,
+        accountId: body.accountId,
+        encryptedToken: body.token ? encrypt(body.token) : undefined,
+        extraConfig: Object.keys(extraConfig).length > 0
+          ? JSON.stringify(extraConfig)
+          : undefined,
+        isActive: !!body.token,
+      },
+      select: {
+        id: true, type: true, label: true, accountId: true,
+        isActive: true, createdAt: true, extraConfig: true,
+      },
+    });
 
-  const integration = await prisma.integration.create({
-    data: {
-      profileId: req.params.profileId,
-      type: body.type,
-      label: body.label,
-      accountId: body.accountId,
-      encryptedToken: body.token ? encrypt(body.token) : undefined,
-      extraConfig: Object.keys(extraConfig).length > 0
-        ? JSON.stringify(extraConfig)
-        : undefined,
-      isActive: !!body.token,
-    },
-    select: {
-      id: true, type: true, label: true, accountId: true,
-      isActive: true, createdAt: true, extraConfig: true,
-    },
-  });
+    return res.status(201).json(integration);
+  } catch (err: any) {
+    console.error('[Integration create error]', err);
+    return res.status(500).json({ error: err?.message ?? 'Erro ao criar integração' });
+  }
+});
 
-  return res.status(201).json(integration);
+router.patch('/:id', async (req: AuthRequest, res: Response) => {
+  try {
+    const integration = await prisma.integration.findFirst({
+      where: { id: req.params.id, profile: { userId: req.userId! } },
+    });
+    if (!integration) return res.status(404).json({ error: 'Integração não encontrada' });
+
+    const body = updateSchema.parse(req.body);
+    const data: Record<string, unknown> = {};
+
+    if (body.label !== undefined) data.label = body.label;
+    if (body.accountId !== undefined) data.accountId = body.accountId || null;
+    if (body.token !== undefined) {
+      data.encryptedToken = body.token ? encrypt(body.token) : null;
+      data.isActive = !!body.token;
+    }
+    if (body.extraConfig !== undefined) {
+      data.extraConfig = Object.keys(body.extraConfig).length > 0
+        ? JSON.stringify(body.extraConfig)
+        : null;
+    }
+
+    const updated = await prisma.integration.update({
+      where: { id: req.params.id },
+      data,
+      select: {
+        id: true, type: true, label: true, accountId: true,
+        isActive: true, lastSyncAt: true, createdAt: true, extraConfig: true,
+      },
+    });
+
+    return res.json(updated);
+  } catch (err: any) {
+    console.error('[Integration update error]', err);
+    return res.status(500).json({ error: err?.message ?? 'Erro ao atualizar integração' });
+  }
 });
 
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
-  const integration = await prisma.integration.findFirst({
-    where: { id: req.params.id, profile: { userId: req.userId! } },
-  });
-  if (!integration) return res.status(404).json({ error: 'Integração não encontrada' });
+  try {
+    const integration = await prisma.integration.findFirst({
+      where: { id: req.params.id, profile: { userId: req.userId! } },
+    });
+    if (!integration) return res.status(404).json({ error: 'Integração não encontrada' });
 
-  await prisma.integration.delete({ where: { id: req.params.id } });
-  return res.json({ ok: true });
+    await prisma.campaign.deleteMany({ where: { integrationId: req.params.id } });
+    await prisma.integration.delete({ where: { id: req.params.id } });
+    return res.json({ ok: true });
+  } catch (err: any) {
+    console.error('[Integration delete error]', err);
+    return res.status(500).json({ error: err?.message ?? 'Erro ao deletar integração' });
+  }
 });
 
 // Gera/lista tracking keys do perfil

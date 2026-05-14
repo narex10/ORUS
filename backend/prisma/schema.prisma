@@ -171,6 +171,7 @@ model CampaignMetric {
   date        DateTime
   impressions Int      @default(0)
   clicks      Int      @default(0)
+  pageViews   Int      @default(0)
   spend       Float    @default(0)
   reach       Int      @default(0)
   cpm         Float?

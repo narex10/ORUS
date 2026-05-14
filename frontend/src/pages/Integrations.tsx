@@ -163,29 +163,60 @@ function MetaTokenGuide() {
 }
 
 function MetaTokenError({ error }: { error: string }) {
-  const isPermission = error.includes('ads_read') || error.includes('permission') || error.includes('permissão');
-  const isAccount = error.includes('conta') || error.includes('acesso') || error.includes('account');
+  const isAccountAccess = error.includes('#200') || error.includes('Permissão negada') || error.includes('Atribuir ativos');
+  const isExpired = error.includes('#190') || error.includes('expirado') || error.includes('inválido');
+  const isWrongId = error.includes('#100') || error.includes('act_');
+  const isPermission = !isAccountAccess && (error.includes('ads_read') || error.includes('permission') || error.includes('permissão'));
 
   return (
     <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-3 space-y-2">
       <div className="flex items-start gap-2">
         <AlertCircle className="h-4 w-4 text-red-400 mt-0.5 flex-shrink-0" />
-        <p className="text-sm text-red-400">{error}</p>
+        <p className="text-sm text-red-400 whitespace-pre-line">{error}</p>
       </div>
-      {isPermission && (
-        <div className="text-xs text-muted-foreground space-y-1 border-t border-red-500/10 pt-2">
-          <p className="font-medium text-foreground">Como corrigir:</p>
+
+      {isAccountAccess && (
+        <div className="text-xs text-muted-foreground space-y-1.5 border-t border-red-500/10 pt-2">
+          <p className="font-semibold text-foreground">Como corrigir no Business Manager:</p>
           <ol className="space-y-1 list-decimal list-inside">
-            <li>Vá em <a href="https://developers.facebook.com/tools/explorer/" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">Graph API Explorer</a></li>
-            <li>Gere um novo token marcando <code className="bg-muted px-1 rounded text-emerald-400">ads_read</code> e <code className="bg-muted px-1 rounded text-emerald-400">ads_management</code></li>
-            <li>Cole o novo token no campo acima e valide novamente</li>
+            <li>Acesse <a href="https://business.facebook.com/settings/system-users" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">Configurações → Usuários do sistema</a></li>
+            <li>Clique no seu System User (ex: <em>ORUS API</em>)</li>
+            <li>Clique em <strong className="text-foreground">Atribuir ativos</strong></li>
+            <li>Selecione <strong className="text-foreground">Contas de anúncios</strong></li>
+            <li>Marque a conta e defina permissão <strong className="text-foreground">Anunciante</strong> ou <strong className="text-foreground">Administrador</strong></li>
+            <li>Salve e tente sincronizar novamente</li>
+          </ol>
+          <div className="rounded bg-amber-500/10 border border-amber-500/20 p-2 text-amber-300 text-[11px]">
+            ⚠️ O token pode estar correto. O problema é que o System User não foi atribuído a esta conta de anúncios específica.
+          </div>
+        </div>
+      )}
+
+      {isExpired && (
+        <div className="text-xs text-muted-foreground border-t border-red-500/10 pt-2 space-y-1">
+          <p className="font-semibold text-foreground">Como corrigir:</p>
+          <ol className="space-y-1 list-decimal list-inside">
+            <li>Acesse <a href="https://business.facebook.com/settings/system-users" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">Usuários do sistema</a></li>
+            <li>Selecione o System User → <strong className="text-foreground">Gerar token</strong></li>
+            <li>Copie o novo token e atualize a integração abaixo</li>
           </ol>
         </div>
       )}
-      {isAccount && !isPermission && (
+
+      {isWrongId && (
         <p className="text-xs text-muted-foreground border-t border-red-500/10 pt-2">
-          Certifique-se que o usuário do token tem acesso à conta de anúncios no Business Manager.
+          Verifique se o Ad Account ID está correto. O formato correto é <code className="bg-muted px-1 rounded text-emerald-400">act_XXXXXXXXX</code> ou apenas os números.
         </p>
+      )}
+
+      {isPermission && !isAccountAccess && (
+        <div className="text-xs text-muted-foreground space-y-1 border-t border-red-500/10 pt-2">
+          <p className="font-medium text-foreground">Como corrigir:</p>
+          <ol className="space-y-1 list-decimal list-inside">
+            <li>Ao gerar o token no System User, marque <code className="bg-muted px-1 rounded text-emerald-400">ads_read</code> e <code className="bg-muted px-1 rounded text-emerald-400">ads_management</code></li>
+            <li>Atualize o token na integração abaixo</li>
+          </ol>
+        </div>
       )}
     </div>
   );
@@ -225,14 +256,20 @@ interface IntegrationCardProps {
   onSync: (id: string) => Promise<any>;
   onConnect: (id: string) => Promise<void>;
   onDisconnect: (id: string) => Promise<void>;
+  onUpdateToken: (id: string, token: string, accountId?: string) => Promise<void>;
   isSyncing: boolean;
   isConnecting: boolean;
 }
 
-function IntegrationCard({ integration, onDelete, onSync, isSyncing }: IntegrationCardProps) {
+function IntegrationCard({ integration, onDelete, onSync, onUpdateToken, isSyncing }: IntegrationCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [syncResult, setSyncResult] = useState<any>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [showTokenForm, setShowTokenForm] = useState(false);
+  const [tokenInput, setTokenInput] = useState('');
+  const [accountIdInput, setAccountIdInput] = useState(integration.accountId ?? '');
+  const [updatingToken, setUpdatingToken] = useState(false);
+  const [updateError, setUpdateError] = useState<string | null>(null);
   const config = PLATFORM_CONFIG[integration.type as PlatformType];
 
   async function handleSync() {
@@ -243,6 +280,21 @@ function IntegrationCard({ integration, onDelete, onSync, isSyncing }: Integrati
       setSyncResult(res.result);
     } catch (err: any) {
       setSyncError(err.response?.data?.error ?? err.message ?? 'Erro ao sincronizar');
+    }
+  }
+
+  async function handleUpdateToken() {
+    if (!tokenInput.trim()) return;
+    setUpdatingToken(true);
+    setUpdateError(null);
+    try {
+      await onUpdateToken(integration.id, tokenInput.trim(), accountIdInput.trim() || undefined);
+      setTokenInput('');
+      setShowTokenForm(false);
+    } catch (err: any) {
+      setUpdateError(err.response?.data?.error ?? err.message ?? 'Erro ao atualizar token');
+    } finally {
+      setUpdatingToken(false);
     }
   }
 
@@ -276,6 +328,18 @@ function IntegrationCard({ integration, onDelete, onSync, isSyncing }: Integrati
             {integration.isActive ? 'Ativo' : 'Inativo'}
           </Badge>
 
+          {!integration.isActive && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => { setShowTokenForm(true); setExpanded(true); }}
+              className="gap-1.5 text-amber-400 border-amber-500/30 hover:bg-amber-500/10"
+            >
+              <AlertCircle className="h-3.5 w-3.5" />
+              Sem Token
+            </Button>
+          )}
+
           {/* Sync */}
           {config?.syncSupported && integration.isActive && (
             <Button
@@ -293,7 +357,10 @@ function IntegrationCard({ integration, onDelete, onSync, isSyncing }: Integrati
           <button onClick={() => setExpanded(e => !e)} className="text-muted-foreground hover:text-foreground p-1.5 transition-colors">
             {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
           </button>
-          <button onClick={() => onDelete(integration.id)} className="text-muted-foreground hover:text-destructive p-1.5 transition-colors">
+          <button
+            onClick={() => { if (window.confirm(`Deletar "${integration.label}"? Esta ação remove todas as campanhas associadas.`)) onDelete(integration.id); }}
+            className="text-muted-foreground hover:text-destructive p-1.5 transition-colors"
+          >
             <Trash2 className="h-4 w-4" />
           </button>
         </div>
@@ -310,15 +377,21 @@ function IntegrationCard({ integration, onDelete, onSync, isSyncing }: Integrati
         </div>
       )}
       {syncError && (
-        <div className="px-4 pb-3 border-t border-border/50 pt-3 flex items-start gap-2 text-xs text-red-400">
-          <AlertCircle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
-          <span>{syncError}</span>
+        <div className="px-4 pb-3 border-t border-border/50 pt-3 space-y-2">
+          {integration.type === 'META_BMS' ? (
+            <MetaTokenError error={syncError} />
+          ) : (
+            <div className="flex items-start gap-2 text-xs text-red-400">
+              <AlertCircle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
+              <span>{syncError}</span>
+            </div>
+          )}
         </div>
       )}
 
       {/* Expanded */}
       {expanded && (
-        <div className="border-t border-border bg-muted/20 px-4 py-3 space-y-2">
+        <div className="border-t border-border bg-muted/20 px-4 py-3 space-y-3">
           <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
             <span>Tipo: <span className="text-foreground">{integration.type}</span></span>
             <span>Criado: <span className="text-foreground">{new Date(integration.createdAt).toLocaleDateString('pt-BR')}</span></span>
@@ -328,6 +401,59 @@ function IntegrationCard({ integration, onDelete, onSync, isSyncing }: Integrati
               <Clock className="h-3.5 w-3.5" />
               Sync em breve para {config?.label}
             </p>
+          )}
+          {/* Atualizar token inline */}
+          {showTokenForm ? (
+            <div className="space-y-2 pt-1 border-t border-border/50">
+              <p className="text-xs font-medium text-amber-400 flex items-center gap-1.5">
+                <AlertCircle className="h-3.5 w-3.5" />
+                {integration.isActive ? 'Atualizar credenciais da integração' : 'Token não configurado — adicione para ativar o sync'}
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1 block">Ad Account ID</label>
+                  <Input
+                    placeholder={config?.fields.find(f => f.key === 'accountId')?.placeholder ?? 'act_...'}
+                    value={accountIdInput}
+                    onChange={e => setAccountIdInput(e.target.value)}
+                    className="h-8 text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1 block">Token de Acesso</label>
+                  <Input
+                    type="password"
+                    placeholder="EAAxxxxxxxx..."
+                    value={tokenInput}
+                    onChange={e => setTokenInput(e.target.value)}
+                    className="h-8 text-xs"
+                  />
+                </div>
+              </div>
+              {updateError && (
+                <p className="text-xs text-red-400 flex items-center gap-1.5">
+                  <AlertCircle className="h-3.5 w-3.5" />
+                  {updateError}
+                </p>
+              )}
+              <div className="flex gap-2">
+                <Button size="sm" onClick={handleUpdateToken} disabled={updatingToken || !tokenInput.trim()} className="gap-1.5">
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  {updatingToken ? 'Salvando...' : 'Salvar Token'}
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => { setShowTokenForm(false); setUpdateError(null); }}>
+                  Cancelar
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => setShowTokenForm(true)}
+              className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1.5 transition-colors"
+            >
+              <RefreshCw className="h-3 w-3" />
+              Atualizar token / credenciais
+            </button>
           )}
         </div>
       )}
@@ -343,6 +469,7 @@ export function Integrations() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [selectedType, setSelectedType] = useState<PlatformType>('META_BMS');
   const [syncingId, setSyncingId] = useState<string | null>(null);
+  const [connectingId, setConnectingId] = useState<string | null>(null);
   const [validating, setValidating] = useState(false);
   const [validateResult, setValidateResult] = useState<{
     accountName: string | null;
@@ -409,6 +536,20 @@ export function Integrations() {
     } finally {
       setSyncingId(null);
     }
+  }
+
+  async function handleUpdateToken(integrationId: string, token: string, accountId?: string) {
+    await api.patch(`/integrations/${integrationId}`, { token, ...(accountId ? { accountId } : {}) });
+    qc.invalidateQueries({ queryKey: ['integrations', activeProfile?.id] });
+  }
+
+  async function handleConnect(_integrationId: string) {
+    setConnectingId(_integrationId);
+    setTimeout(() => setConnectingId(null), 1000);
+  }
+
+  async function handleDisconnect(_integrationId: string) {
+    // placeholder — fluxo OAuth removido
   }
 
   async function handleValidate() {
@@ -617,6 +758,7 @@ export function Integrations() {
               onSync={handleSync}
               onConnect={handleConnect}
               onDisconnect={handleDisconnect}
+              onUpdateToken={handleUpdateToken}
               isSyncing={syncingId === integration.id}
               isConnecting={connectingId === integration.id}
             />

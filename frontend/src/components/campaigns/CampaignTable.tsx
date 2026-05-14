@@ -12,6 +12,8 @@ import { cn } from '@/lib/utils';
 interface Props {
   campaigns: Campaign[];
   currency?: string;
+  from: string;
+  to: string;
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -25,12 +27,12 @@ function StatusBadge({ status }: { status: string }) {
   return <Badge variant={variant}>{label}</Badge>;
 }
 
-function CampaignRow({ campaign, currency }: { campaign: Campaign; currency: string }) {
+function CampaignRow({ campaign, currency, from, to }: { campaign: Campaign; currency: string; from: string; to: string }) {
   const [expanded, setExpanded] = useState(false);
 
   const { data: funnel } = useQuery({
-    queryKey: ['funnel', campaign.id],
-    queryFn: () => api.get(`/campaigns/${campaign.id}/funnel`).then(r => r.data),
+    queryKey: ['funnel', campaign.id, from, to],
+    queryFn: () => api.get(`/campaigns/${campaign.id}/funnel`, { params: { from, to } }).then(r => r.data),
     enabled: expanded,
   });
 
@@ -84,7 +86,7 @@ function CampaignRow({ campaign, currency }: { campaign: Campaign; currency: str
   );
 }
 
-export function CampaignTable({ campaigns, currency = 'BRL' }: Props) {
+export function CampaignTable({ campaigns, currency = 'BRL', from, to }: Props) {
   const headers = [
     { label: 'Campanha', align: 'left' },
     { label: 'Status', align: 'left' },
@@ -122,7 +124,7 @@ export function CampaignTable({ campaigns, currency = 'BRL' }: Props) {
             </tr>
           ) : (
             campaigns.map(c => (
-              <CampaignRow key={c.id} campaign={c} currency={currency} />
+              <CampaignRow key={c.id} campaign={c} currency={currency} from={from} to={to} />
             ))
           )}
         </tbody>

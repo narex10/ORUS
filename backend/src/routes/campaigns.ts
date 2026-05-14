@@ -86,8 +86,13 @@ router.get('/:campaignId/funnel', async (req: AuthRequest, res: Response) => {
   if (!campaign) return res.status(404).json({ error: 'Campanha não encontrada' });
 
   const totals = campaign.metrics.reduce(
-    (acc, m) => ({ clicks: acc.clicks + m.clicks, leads: acc.leads + m.leads, purchases: acc.purchases + m.purchases }),
-    { clicks: 0, leads: 0, purchases: 0 }
+    (acc, m) => ({
+      clicks: acc.clicks + m.clicks,
+      pageViews: acc.pageViews + (m.pageViews ?? 0),
+      leads: acc.leads + m.leads,
+      purchases: acc.purchases + m.purchases,
+    }),
+    { clicks: 0, pageViews: 0, leads: 0, purchases: 0 }
   );
 
   // Cadastros reais do site vinculados ao utm_campaign da campanha
@@ -106,6 +111,7 @@ router.get('/:campaignId/funnel', async (req: AuthRequest, res: Response) => {
 
   return res.json({
     clicks: totals.clicks,
+    pageViews: totals.pageViews,
     leads: totals.leads,
     realLeads,
     purchases: totals.purchases,

@@ -12,7 +12,10 @@ import { cn } from '@/lib/utils';
 const PERIOD_OPTIONS = [
   { label: '7 dias', days: 7 },
   { label: '14 dias', days: 14 },
-  { label: '30 dias', days: 29 },
+  { label: '30 dias', days: 30 },
+  { label: '60 dias', days: 60 },
+  { label: '90 dias', days: 90 },
+  { label: '6 meses', days: 180 },
 ];
 
 export function Campaigns() {
@@ -71,7 +74,7 @@ export function Campaigns() {
       {isLoading ? (
         <div className="h-64 rounded-xl bg-card animate-pulse border border-border" />
       ) : (
-        <CampaignTable campaigns={campaigns ?? []} currency={activeProfile.currency} />
+        <CampaignTable campaigns={campaigns ?? []} currency={activeProfile.currency} from={from} to={to} />
       )}
     </div>
   );

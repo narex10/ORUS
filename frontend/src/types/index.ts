@@ -51,6 +51,7 @@ export interface Campaign {
 
 export interface CampaignFunnel {
   clicks: number;
+  pageViews: number;
   leads: number;
   realLeads: number;
   purchases: number;

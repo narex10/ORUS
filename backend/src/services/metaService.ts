@@ -54,6 +54,43 @@ interface MetaInsight {
   action_values?: Array<{ action_type: string; value: string }>;
 }
 
+// ─── Mapeamento de erros da Meta API ─────────────────────────
+
+function translateMetaError(err: any): string {
+  const code: number = err?.error?.code ?? 0;
+  const subcode: number = err?.error?.error_subcode ?? 0;
+  const raw: string = err?.error?.message ?? '';
+
+  // #200 — System User não atribuído à conta de anúncios
+  if (code === 200 || raw.includes('ads_management') || raw.includes('ads_read')) {
+    return (
+      'Permissão negada pela Meta (#200): o System User do token não tem acesso à conta de anúncios.\n' +
+      'Corrija no Business Manager:\n' +
+      '1. Acesse Configurações → Usuários do sistema\n' +
+      '2. Clique no System User → "Atribuir ativos"\n' +
+      '3. Selecione "Contas de anúncios" → marque a conta → permissão "Anunciante" ou "Administrador"\n' +
+      '4. Salve e tente sincronizar novamente.'
+    );
+  }
+
+  // #190 — token expirado ou inválido
+  if (code === 190 || subcode === 463 || subcode === 467) {
+    return 'Token expirado ou inválido. Gere um novo System User Token no Business Manager e atualize a integração.';
+  }
+
+  // #100 — parâmetro inválido (ex: accountId errado)
+  if (code === 100) {
+    return `Parâmetro inválido na requisição Meta: ${raw}. Verifique se o Ad Account ID está correto (formato act_XXXXXXXXX).`;
+  }
+
+  // #4 / #17 — rate limit
+  if (code === 4 || code === 17) {
+    return 'Limite de requisições da Meta atingido. Aguarde alguns minutos e tente novamente.';
+  }
+
+  return `Meta API error: ${raw || 'erro desconhecido'}`;
+}
+
 // ─── Helper de fetch paginado ─────────────────────────────────
 
 async function fetchAll<T>(url: string): Promise<T[]> {
@@ -63,8 +100,8 @@ async function fetchAll<T>(url: string): Promise<T[]> {
   while (nextUrl) {
     const res = await fetch(nextUrl);
     if (!res.ok) {
-      const err = await res.json() as any;
-      throw new Error(`Meta API error: ${err?.error?.message ?? res.statusText}`);
+      const errJson = await res.json() as any;
+      throw new Error(translateMetaError(errJson));
     }
     const json = await res.json() as { data: T[]; paging?: { next?: string } };
     results.push(...json.data);
@@ -196,7 +233,7 @@ export async function syncMetaIntegration(integrationId: string): Promise<{
 
       // ── 3. Anúncios do conjunto ───────────────────────
       const rawAds = await fetchAll<MetaAd>(
-        `${META_API}/${mas.id}/ads?fields=id,name,status,creative{thumbnail_url,body,title,effective_instagram_media_url}&limit=100&${baseParams}`
+        `${META_API}/${mas.id}/ads?fields=id,name,status,creative{thumbnail_url,body,title}&limit=100&${baseParams}`
       );
 
       for (const ma of rawAds) {
@@ -228,11 +265,16 @@ export async function syncMetaIntegration(integrationId: string): Promise<{
   }
 
   // ── 4. Insights de campanha (últimos 30 dias, por dia) ─
+  const sinceDate = new Date();
+  sinceDate.setDate(sinceDate.getDate() - 180);
+  const since = sinceDate.toISOString().split('T')[0];
+  const until = new Date().toISOString().split('T')[0];
+
   const insights = await fetchAll<MetaInsight>(
     `${META_API}/${accountId}/insights?` +
     `level=campaign` +
     `&fields=campaign_id,date_start,impressions,clicks,spend,reach,cpm,ctr,actions,action_values` +
-    `&date_preset=last_30d` +
+    `&time_range=${encodeURIComponent(JSON.stringify({ since, until }))}` +
     `&time_increment=1` +
     `&limit=500` +
     `&${baseParams}`
@@ -248,8 +290,8 @@ export async function syncMetaIntegration(integrationId: string): Promise<{
     const spend = parseFloat(ins.spend ?? '0');
     const purchases = getActionValue(ins.actions, 'purchase') +
       getActionValue(ins.actions, 'offsite_conversion.fb_pixel_purchase');
-    const leads = getActionValue(ins.actions, 'lead') +
-      getActionValue(ins.actions, 'offsite_conversion.fb_pixel_lead');
+    const leads = getActionValue(ins.actions, 'complete_registration');
+    const pageViews = getActionValue(ins.actions, 'landing_page_view');
     const revenue = getActionValue(ins.action_values, 'purchase') +
       getActionValue(ins.action_values, 'offsite_conversion.fb_pixel_purchase');
 
@@ -258,6 +300,7 @@ export async function syncMetaIntegration(integrationId: string): Promise<{
       update: {
         impressions: parseInt(ins.impressions ?? '0'),
         clicks: parseInt(ins.clicks ?? '0'),
+        pageViews,
         spend,
         reach: parseInt(ins.reach ?? '0'),
         cpm: parseFloat(ins.cpm ?? '0'),
@@ -273,6 +316,7 @@ export async function syncMetaIntegration(integrationId: string): Promise<{
         date,
         impressions: parseInt(ins.impressions ?? '0'),
         clicks: parseInt(ins.clicks ?? '0'),
+        pageViews,
         spend,
         reach: parseInt(ins.reach ?? '0'),
         cpm: parseFloat(ins.cpm ?? '0'),
@@ -294,6 +338,51 @@ export async function syncMetaIntegration(integrationId: string): Promise<{
   });
 
   return { campaigns: campaignCount, adSets: adSetCount, ads: adCount, metrics: metricCount };
+}
+
+// ─── Diagnóstico de acesso à conta de anúncios ───────────────
+
+export async function diagnoseMetaAccount(token: string, accountId: string): Promise<{
+  canReadAccount: boolean;
+  canListCampaigns: boolean;
+  accountName: string | null;
+  error: string | null;
+}> {
+  const id = accountId.startsWith('act_') ? accountId : `act_${accountId}`;
+  const at = encodeURIComponent(token);
+
+  // Testa leitura da conta
+  const acctRes = await fetch(`${META_API}/${id}?fields=name,account_status&access_token=${at}`);
+  const acctData = await acctRes.json() as any;
+
+  if (acctData.error) {
+    return {
+      canReadAccount: false,
+      canListCampaigns: false,
+      accountName: null,
+      error: translateMetaError(acctData),
+    };
+  }
+
+  // Testa listagem de campanhas (1 resultado apenas, para validar acesso)
+  const campRes = await fetch(`${META_API}/${id}/campaigns?fields=id&limit=1&access_token=${at}`);
+  const campData = await campRes.json() as any;
+
+  if (campData.error) {
+    return {
+      canReadAccount: true,
+      canListCampaigns: false,
+      accountName: acctData.name ?? null,
+      error: translateMetaError(campData),
+    };
+  }
+
+  return {
+    canReadAccount: true,
+    canListCampaigns: true,
+    accountName: acctData.name ?? null,
+    error: null,
+  };
 }
 
 // ─── Valida token e retorna info da conta ─────────────────────
@@ -321,7 +410,7 @@ export async function validateMetaToken(token: string, accountId: string): Promi
     throw new Error(`Token inválido: ${msg}`);
   }
 
-  // ── Passo 2: Verifica permissões do token ────────────────────
+  // ── Passo 2: Tenta verificar permissões (só funciona para user tokens) ────
   const permRes = await fetch(
     `${META_API}/me/permissions?access_token=${encodeURIComponent(token)}`
   );
@@ -330,20 +419,25 @@ export async function validateMetaToken(token: string, accountId: string): Promi
     .filter((p: any) => p.status === 'granted')
     .map((p: any) => p.permission as string);
 
-  const hasAdsAccess =
-    grantedPerms.includes('ads_read') ||
-    grantedPerms.includes('ads_management');
+  // System User Tokens não têm /me/permissions — validar pelo acesso direto à conta
+  const isSystemUser = grantedPerms.length === 0;
 
-  if (!hasAdsAccess) {
-    const current = grantedPerms.length > 0 ? grantedPerms.join(', ') : 'nenhuma';
-    throw new Error(
-      `Permissão "ads_read" não encontrada neste token.\n` +
-      `Permissões atuais: ${current}.\n` +
-      `Volte ao Graph API Explorer, marque ads_read e ads_management, e gere o token novamente.`
-    );
+  if (!isSystemUser) {
+    const hasAdsAccess =
+      grantedPerms.includes('ads_read') ||
+      grantedPerms.includes('ads_management');
+
+    if (!hasAdsAccess) {
+      const current = grantedPerms.join(', ');
+      throw new Error(
+        `Permissão "ads_read" não encontrada neste token.\n` +
+        `Permissões atuais: ${current}.\n` +
+        `No Graph API Explorer, marque ads_read e ads_management ao gerar o token.`
+      );
+    }
   }
 
-  // ── Passo 3: Tenta acessar a conta (sem bloquear se falhar) ──
+  // ── Passo 3: Tenta ler a conta (não bloqueia se falhar) ──────
   const id = accountId.startsWith('act_') ? accountId : `act_${accountId}`;
   let accountName: string | null = null;
   let currency: string | null = null;
@@ -356,17 +450,15 @@ export async function validateMetaToken(token: string, accountId: string): Promi
     const acctData = await acctRes.json() as any;
 
     if (acctData.error) {
-      // Não bloqueia — retorna aviso em vez de erro
-      accountWarning = `Não foi possível ler a conta ${id}: ${acctData.error.message}. ` +
-        `O token e as permissões estão corretos. O sync tentará acessar a conta diretamente. ` +
-        `Se falhar, verifique se o App tem "Marketing API Standard Access" aprovado, ` +
-        `ou use um System User Token do Business Manager.`;
+      // Não bloqueia — token válido, conta será testada no sync
+      accountWarning = `Conta ${id} não acessível agora: ${acctData.error.message}. ` +
+        `O token está OK. Salve e use o botão Sync para puxar os dados.`;
     } else {
       accountName = acctData.name;
       currency = acctData.currency;
     }
   } catch {
-    accountWarning = 'Não foi possível verificar a conta agora. Salve e tente sincronizar.';
+    accountWarning = 'Não foi possível verificar a conta agora. Salve e sincronize depois.';
   }
 
   return {
@@ -374,7 +466,7 @@ export async function validateMetaToken(token: string, accountId: string): Promi
     currency,
     userName: meData.name,
     valid: true,
-    permissions: grantedPerms,
+    permissions: isSystemUser ? ['system_user', 'ads_read', 'ads_management'] : grantedPerms,
     accountWarning,
   };
 }
