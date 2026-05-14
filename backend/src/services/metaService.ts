@@ -331,6 +331,49 @@ export async function syncMetaIntegration(integrationId: string): Promise<{
     metricCount++;
   }
 
+  // ── 5. Insights a nível de anúncio (AdMetric) ────────────────
+  const adInsights = await fetchAll<MetaInsight>(
+    `${META_API}/${accountId}/insights?` +
+    `level=ad` +
+    `&fields=ad_id,date_start,impressions,clicks,spend,cpm,ctr,actions,action_values` +
+    `&time_range=${encodeURIComponent(JSON.stringify({ since, until }))}` +
+    `&time_increment=1` +
+    `&limit=500` +
+    `&${baseParams}`
+  );
+
+  for (const ins of adInsights) {
+    const ad = await prisma.ad.findFirst({ where: { externalId: ins.ad_id! } });
+    if (!ad) continue;
+
+    const date = new Date(ins.date_start);
+    const spend = parseFloat(ins.spend ?? '0');
+    const leads = getActionValue(ins.actions, 'complete_registration');
+    const purchases = getActionValue(ins.actions, 'purchase') +
+      getActionValue(ins.actions, 'offsite_conversion.fb_pixel_purchase');
+    const revenue = getActionValue(ins.action_values, 'purchase') +
+      getActionValue(ins.action_values, 'offsite_conversion.fb_pixel_purchase');
+
+    const adMetricData = {
+      impressions: parseInt(ins.impressions ?? '0'),
+      clicks: parseInt(ins.clicks ?? '0'),
+      spend,
+      cpm: parseFloat(ins.cpm ?? '0'),
+      ctr: parseFloat(ins.ctr ?? '0'),
+      leads,
+      purchases,
+      revenue,
+      roas: spend > 0 ? revenue / spend : 0,
+      cpa: leads > 0 ? spend / leads : 0,
+    };
+
+    await prisma.adMetric.upsert({
+      where: { adId_date: { adId: ad.id, date } },
+      update: adMetricData,
+      create: { adId: ad.id, date, ...adMetricData },
+    });
+  }
+
   // Atualiza timestamp do último sync
   await prisma.integration.update({
     where: { id: integrationId },
