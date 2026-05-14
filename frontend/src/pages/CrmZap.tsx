@@ -29,6 +29,7 @@ interface CrmLead {
   purchaseAt: string | null;
   createdAt: string;
   source?: string;
+  rawParams?: string | null;
 }
 
 interface CrmStageBoard {
@@ -65,6 +66,41 @@ function sourceLabel(src?: string) {
   return 'WhatsApp';
 }
 
+const MANUAL_LEAD_ORIGIN_OPTIONS = [
+  { id: 'organico', label: 'Orgânico' },
+  { id: 'indicacao', label: 'Indicação' },
+  { id: 'site', label: 'Site' },
+  { id: 'trafego', label: 'Tráfego' },
+  { id: 'instagram', label: 'Instagram' },
+  { id: 'captacao', label: 'Captação' },
+] as const;
+
+type ManualLeadChannelId = (typeof MANUAL_LEAD_ORIGIN_OPTIONS)[number]['id'];
+
+function parseManualChannelId(lead: CrmLead): ManualLeadChannelId | null {
+  if (!lead.rawParams) return null;
+  try {
+    const o = JSON.parse(lead.rawParams) as { manualChannel?: string };
+    const id = o.manualChannel;
+    if (!id || typeof id !== 'string') return null;
+    return (MANUAL_LEAD_ORIGIN_OPTIONS as readonly { id: string }[]).some(x => x.id === id)
+      ? (id as ManualLeadChannelId)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function leadSourceBadgeText(lead: CrmLead): string {
+  const base = sourceLabel(lead.source);
+  if (lead.source === 'MANUAL') {
+    const ch = parseManualChannelId(lead);
+    const sub = ch ? MANUAL_LEAD_ORIGIN_OPTIONS.find(o => o.id === ch)?.label : null;
+    return sub ? `${base} · ${sub}` : base;
+  }
+  return base;
+}
+
 function sourceBadgeClass(src?: string) {
   if (src === 'SITE') return 'bg-sky-500/20 text-sky-800 dark:text-sky-200';
   if (src === 'MANUAL') return 'bg-violet-500/20 text-violet-800 dark:text-violet-200';
@@ -80,6 +116,7 @@ export function CrmZap() {
   const [manName, setManName] = useState('');
   const [manPhone, setManPhone] = useState('');
   const [manValue, setManValue] = useState('');
+  const [manChannel, setManChannel] = useState<ManualLeadChannelId>('organico');
   const [previewMsg, setPreviewMsg] = useState('');
   const [purchaseLead, setPurchaseLead] = useState<CrmLead | null>(null);
   const [purchaseValue, setPurchaseValue] = useState('');
@@ -169,7 +206,7 @@ export function CrmZap() {
   });
 
   const manualPurchase = useMutation({
-    mutationFn: (body: { name: string; phone: string; value: number }) =>
+    mutationFn: (body: { name: string; phone: string; value: number; channel: ManualLeadChannelId }) =>
       api.post(`/crm-zap/profile/${profileId}/leads/manual-purchase`, {
         ...body,
         currency: activeProfile?.currency ?? 'BRL',
@@ -179,6 +216,7 @@ export function CrmZap() {
       setManName('');
       setManPhone('');
       setManValue('');
+      setManChannel('organico');
       const data = axiosRes.data;
       if (data?.firePixelPurchase && settings?.pixelId) {
         trackPurchase(data.value, data.currency ?? 'BRL');
@@ -411,7 +449,7 @@ export function CrmZap() {
                         <div className="flex items-center justify-between gap-2">
                           <span className="font-medium text-sm truncate">{lead.name || 'Sem nome'}</span>
                           <span className={cn('shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium', sourceBadgeClass(lead.source))}>
-                            {sourceLabel(lead.source)}
+                            {leadSourceBadgeText(lead)}
                           </span>
                         </div>
                         <div className="text-muted-foreground">{lead.phone}</div>
@@ -481,6 +519,18 @@ export function CrmZap() {
               value={manPhone}
               onChange={e => setManPhone(e.target.value)}
             />
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">Origem</label>
+              <select
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={manChannel}
+                onChange={e => setManChannel(e.target.value as ManualLeadChannelId)}
+              >
+                {MANUAL_LEAD_ORIGIN_OPTIONS.map(o => (
+                  <option key={o.id} value={o.id}>{o.label}</option>
+                ))}
+              </select>
+            </div>
             <input
               type="number"
               step="0.01"
@@ -496,7 +546,12 @@ export function CrmZap() {
               onClick={() => {
                 const v = parseFloat(manValue.replace(',', '.'));
                 if (!Number.isFinite(v) || v <= 0) return;
-                manualPurchase.mutate({ name: manName.trim(), phone: manPhone.trim(), value: v });
+                manualPurchase.mutate({
+                  name: manName.trim(),
+                  phone: manPhone.trim(),
+                  value: v,
+                  channel: manChannel,
+                });
               }}
             >
               {manualPurchase.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Registrar venda + Pixel'}

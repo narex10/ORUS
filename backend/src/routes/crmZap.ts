@@ -24,6 +24,37 @@ function slugify(name: string): string {
   return base || 'aba';
 }
 
+const MANUAL_LEAD_CHANNEL = z.enum([
+  'organico',
+  'indicacao',
+  'site',
+  'trafego',
+  'instagram',
+  'captacao',
+]);
+
+const MANUAL_CHANNEL_LABEL: Record<z.infer<typeof MANUAL_LEAD_CHANNEL>, string> = {
+  organico: 'Orgânico',
+  indicacao: 'Indicação',
+  site: 'Site',
+  trafego: 'Tráfego',
+  instagram: 'Instagram',
+  captacao: 'Captação',
+};
+
+function mergeLeadRawParams(existing: string | null, patch: Record<string, unknown>): string {
+  let base: Record<string, unknown> = {};
+  if (existing) {
+    try {
+      const parsed = JSON.parse(existing);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        base = parsed as Record<string, unknown>;
+      }
+    } catch { /* ignore */ }
+  }
+  return JSON.stringify({ ...base, ...patch });
+}
+
 async function ensureInboundToken(profileId: string) {
   const p = await prisma.profile.findUnique({ where: { id: profileId } });
   if (!p) return null;
@@ -341,6 +372,7 @@ router.post('/profile/:profileId/leads/manual-purchase', async (req: AuthRequest
       phone: z.string().min(3),
       value: z.number().positive(),
       currency: z.string().default('BRL'),
+      channel: MANUAL_LEAD_CHANNEL,
     })
     .parse(req.body);
 
@@ -349,6 +381,8 @@ router.post('/profile/:profileId/leads/manual-purchase', async (req: AuthRequest
 
   const phone = normalizePhone(body.phone);
   const now = new Date();
+  const mergedRaw = (prev: string | null) =>
+    mergeLeadRawParams(prev, { manualChannel: body.channel });
 
   let lead = await prisma.crmLead.findFirst({ where: { profileId, phone } });
 
@@ -360,6 +394,7 @@ router.post('/profile/:profileId/leads/manual-purchase', async (req: AuthRequest
           name: body.name.trim(),
           stageId: venda.id,
           source: 'MANUAL',
+          rawParams: mergedRaw(lead.rawParams),
           purchaseValue: body.value,
           purchaseAt: now,
           pixelPurchaseFiredAt: now,
@@ -378,7 +413,7 @@ router.post('/profile/:profileId/leads/manual-purchase', async (req: AuthRequest
           siteCampaignId: lead.siteCampaignId,
           siteCampaignName: lead.siteCampaignName,
           pageUrl: lead.sourceUrl,
-          rawParams: lead.rawParams,
+          rawParams: mergedRaw(lead.rawParams),
           referrer: 'CRM_ZAP_MANUAL',
         },
       }),
@@ -393,7 +428,8 @@ router.post('/profile/:profileId/leads/manual-purchase', async (req: AuthRequest
           phone,
           name: body.name.trim(),
           source: 'MANUAL',
-          firstMessage: 'Cadastro manual CRM',
+          firstMessage: `Cadastro manual CRM · ${MANUAL_CHANNEL_LABEL[body.channel]}`,
+          rawParams: mergedRaw(null),
           purchaseValue: body.value,
           purchaseAt: now,
           pixelPurchaseFiredAt: now,
@@ -405,6 +441,7 @@ router.post('/profile/:profileId/leads/manual-purchase', async (req: AuthRequest
           type: 'PURCHASE',
           value: body.value,
           phone,
+          rawParams: mergedRaw(null),
           referrer: 'CRM_ZAP_MANUAL',
         },
       });

@@ -72,6 +72,7 @@ export function KPICards({ kpis, currency = 'BRL' }: Props) {
     {
       title: 'Vendas',
       value: formatNumber(kpis.purchases),
+      subtitle: 'Meta + site/CRM',
       icon: ShoppingCart,
       color: 'bg-violet-500/20 text-violet-400',
     },
