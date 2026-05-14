@@ -43,6 +43,203 @@ function parseSegmentation(targeting: any) {
   };
 }
 
+type SiteTempKey = 'hot' | 'warm' | 'cold' | 'unknown';
+
+function parseTargetingJson(raw: string | null | undefined): any {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function deviceCoarse(userAgent: string | null | undefined): 'mobile' | 'desktop' | 'unknown' {
+  if (!userAgent) return 'unknown';
+  return /Mobile|Android|iPhone|iPad|webOS/i.test(userAgent) ? 'mobile' : 'desktop';
+}
+
+async function buildSiteTrackingByTemp(profileId: string, fromDate: string, toDate: string) {
+  const fromD = new Date(`${fromDate}T00:00:00.000Z`);
+  const toD = new Date(`${toDate}T23:59:59.999Z`);
+
+  const [rows, ads, adSets] = await Promise.all([
+    prisma.siteConversion.findMany({
+      where: { profileId, createdAt: { gte: fromD, lte: toD } },
+      select: {
+        id: true,
+        type: true,
+        value: true,
+        adId: true,
+        creativeId: true,
+        adsetId: true,
+        utmSource: true,
+        utmMedium: true,
+        utmCampaign: true,
+        utmContent: true,
+        sessionId: true,
+        fingerprint: true,
+        userAgent: true,
+        pageUrl: true,
+        referrer: true,
+      },
+    }),
+    prisma.ad.findMany({
+      where: { adSet: { campaign: { profileId } } },
+      select: { id: true, externalId: true, adSet: { select: { targeting: true } } },
+    }),
+    prisma.adSet.findMany({
+      where: { campaign: { profileId } },
+      select: { externalId: true, targeting: true },
+    }),
+  ]);
+
+  const adById = new Map(ads.map(a => [a.id, a]));
+  const adByCreative = new Map(ads.map(a => [a.externalId, a]));
+  const adSetByExt = new Map(adSets.map(a => [a.externalId, a]));
+
+  function tempForConversion(conv: (typeof rows)[number]): SiteTempKey {
+    let targeting: any = null;
+    if (conv.adId) {
+      const ad = adById.get(conv.adId);
+      targeting = ad ? parseTargetingJson(ad.adSet.targeting) : null;
+    }
+    if (!targeting && conv.creativeId) {
+      const ad = adByCreative.get(conv.creativeId);
+      targeting = ad ? parseTargetingJson(ad.adSet.targeting) : null;
+    }
+    if (!targeting && conv.adsetId) {
+      const aset = adSetByExt.get(conv.adsetId);
+      targeting = aset ? parseTargetingJson(aset.targeting) : null;
+    }
+    if (!targeting) return 'unknown';
+    return classifyTemp(targeting);
+  }
+
+  type Agg = {
+    pageviews: number;
+    leads: number;
+    purchases: number;
+    custom: number;
+    revenue: number;
+    mobile: number;
+    desktop: number;
+    deviceUnknown: number;
+    srcMap: Map<string, number>;
+    campMap: Map<string, number>;
+    mediumMap: Map<string, number>;
+    visitors: Set<string>;
+  };
+
+  function mkAgg(): Agg {
+    return {
+      pageviews: 0,
+      leads: 0,
+      purchases: 0,
+      custom: 0,
+      revenue: 0,
+      mobile: 0,
+      desktop: 0,
+      deviceUnknown: 0,
+      srcMap: new Map(),
+      campMap: new Map(),
+      mediumMap: new Map(),
+      visitors: new Set(),
+    };
+  }
+
+  const buckets: Record<SiteTempKey, Agg> = {
+    hot: mkAgg(),
+    warm: mkAgg(),
+    cold: mkAgg(),
+    unknown: mkAgg(),
+  };
+
+  for (const conv of rows) {
+    const temp = tempForConversion(conv);
+    const b = buckets[temp];
+    const vKey = conv.sessionId || conv.fingerprint || conv.id;
+    b.visitors.add(vKey);
+
+    const dev = deviceCoarse(conv.userAgent);
+    if (dev === 'mobile') b.mobile++;
+    else if (dev === 'desktop') b.desktop++;
+    else b.deviceUnknown++;
+
+    const src = (conv.utmSource || '').trim() || '(não informado)';
+    const camp = (conv.utmCampaign || '').trim() || '(não informado)';
+    const med = (conv.utmMedium || '').trim() || '(não informado)';
+    b.srcMap.set(src, (b.srcMap.get(src) ?? 0) + 1);
+    b.campMap.set(camp, (b.campMap.get(camp) ?? 0) + 1);
+    b.mediumMap.set(med, (b.mediumMap.get(med) ?? 0) + 1);
+
+    switch (conv.type) {
+      case 'PAGEVIEW':
+        b.pageviews++;
+        break;
+      case 'LEAD':
+        b.leads++;
+        break;
+      case 'PURCHASE':
+        b.purchases++;
+        b.revenue += Number(conv.value ?? 0) || 0;
+        break;
+      default:
+        b.custom++;
+        break;
+    }
+  }
+
+  function topEntries(m: Map<string, number>, n: number): { key: string; count: number }[] {
+    return [...m.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, n)
+      .map(([key, count]) => ({ key, count }));
+  }
+
+  function finalize(a: Agg) {
+    return {
+      pageviews: a.pageviews,
+      leads: a.leads,
+      purchases: a.purchases,
+      custom: a.custom,
+      revenue: Math.round(a.revenue * 100) / 100,
+      visitsApprox: a.visitors.size,
+      devices: {
+        mobile: a.mobile,
+        desktop: a.desktop,
+        unknown: a.deviceUnknown,
+      },
+      topUtmSources: topEntries(a.srcMap, 5),
+      topUtmMediums: topEntries(a.mediumMap, 5),
+      topUtmCampaigns: topEntries(a.campMap, 5),
+    };
+  }
+
+  return {
+    hot: finalize(buckets.hot),
+    warm: finalize(buckets.warm),
+    cold: finalize(buckets.cold),
+    unknown: finalize(buckets.unknown),
+  };
+}
+
+function emptyMetaByTemp() {
+  const emptyBucket = {
+    spend: 0,
+    clicks: 0,
+    impressions: 0,
+    leads: 0,
+    purchases: 0,
+    revenue: 0,
+    count: 0,
+    ctr: 0,
+    cpl: 0,
+    roas: 0,
+  };
+  return { hot: { ...emptyBucket }, warm: { ...emptyBucket }, cold: { ...emptyBucket } };
+}
+
 async function fetchMetaInsights(
   accountId: string,
   token: string,
@@ -96,8 +293,19 @@ router.get('/profile/:profileId', async (req: AuthRequest, res: Response) => {
   if (!profile) return res.status(404).json({ error: 'Perfil não encontrado' });
 
   const integration = profile.integrations[0];
+  const siteTrackingPromise = buildSiteTrackingByTemp(profileId, fromDate, toDate);
+
   if (!integration?.encryptedToken || !integration.accountId) {
-    return res.json({ error: 'Sem integração Meta ativa' });
+    const siteTrackingByTemp = await siteTrackingPromise;
+    return res.json({
+      error: 'Sem integração Meta ativa',
+      byTemp: emptyMetaByTemp(),
+      byAge: [],
+      byGender: [],
+      byRegion: [],
+      adSets: [],
+      siteTrackingByTemp,
+    });
   }
 
   const token     = decrypt(integration.encryptedToken);
@@ -106,8 +314,8 @@ router.get('/profile/:profileId', async (req: AuthRequest, res: Response) => {
     : `act_${integration.accountId}`;
   const timeRange = JSON.stringify({ since: fromDate, until: toDate });
 
-  // ── Buscar breakdowns em paralelo ────────────────────────
-  const [ageGenderRaw, regionRaw, adSets] = await Promise.all([
+  // ── Buscar breakdowns em paralelo (+ rastreamento do site) ──
+  const [ageGenderRaw, regionRaw, adSets, siteTrackingByTemp] = await Promise.all([
     fetchMetaInsights(accountId, token, timeRange, 'age,gender'),
     fetchMetaInsights(accountId, token, timeRange, 'region'),
     prisma.adSet.findMany({
@@ -124,6 +332,7 @@ router.get('/profile/:profileId', async (req: AuthRequest, res: Response) => {
         campaign: { select: { id: true, name: true, status: true } },
       },
     }),
+    siteTrackingPromise,
   ]);
 
   // ── Por Temperatura ──────────────────────────────────────
@@ -250,6 +459,7 @@ router.get('/profile/:profileId', async (req: AuthRequest, res: Response) => {
     byGender: Object.entries(byGender).map(([gender, v]) => ({ gender, ...v })),
     byRegion: regionsSorted,
     adSets: adSetDetails.sort((a, b) => b.spend - a.spend),
+    siteTrackingByTemp,
   });
 });
 

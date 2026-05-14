@@ -7,6 +7,7 @@ import {
   Flame, Wind, Snowflake, MapPin, Users, Calendar,
   ChevronDown, ChevronRight, Tag, Target, TrendingUp,
   DollarSign, MousePointer, RefreshCw,
+  HelpCircle, Code2, Smartphone, Monitor,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -38,6 +39,26 @@ interface AdSetDetail {
   ctr: number; cpl: number; roas: number;
 }
 
+interface SiteTrackingBucket {
+  pageviews: number;
+  leads: number;
+  purchases: number;
+  custom: number;
+  revenue: number;
+  visitsApprox: number;
+  devices: { mobile: number; desktop: number; unknown: number };
+  topUtmSources: { key: string; count: number }[];
+  topUtmMediums: { key: string; count: number }[];
+  topUtmCampaigns: { key: string; count: number }[];
+}
+
+interface SiteTrackingByTemp {
+  hot: SiteTrackingBucket;
+  warm: SiteTrackingBucket;
+  cold: SiteTrackingBucket;
+  unknown: SiteTrackingBucket;
+}
+
 interface FunnelData {
   byTemp: { hot: TempBucket; warm: TempBucket; cold: TempBucket };
   byAge: ({ age: string } & DemoBucket)[];
@@ -45,6 +66,7 @@ interface FunnelData {
   byRegion: { name: string; impressions: number; clicks: number; spend: number; leads: number }[];
   adSets: AdSetDetail[];
   error?: string;
+  siteTrackingByTemp?: SiteTrackingByTemp;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────
@@ -272,6 +294,171 @@ function TagList({ items, color }: { items: string[]; color: string }) {
   );
 }
 
+// ─── Rastreamento do site × temperatura ───────────────────────
+
+const SITE_TRACKING_TEMP_KEYS = ['hot', 'warm', 'cold', 'unknown'] as const;
+
+const SITE_TRACKING_TEMP_UI: Record<
+  typeof SITE_TRACKING_TEMP_KEYS[number],
+  { label: string; sublabel: string; Icon: typeof Flame; iconCls: string; border: string; bg: string }
+> = {
+  hot: {
+    label: TEMP_CFG.hot.label,
+    sublabel: 'Eventos atribuídos a conjuntos quentes',
+    Icon: Flame,
+    iconCls: TEMP_CFG.hot.iconCls,
+    border: 'border-red-500/25',
+    bg: 'bg-red-500/[0.03]',
+  },
+  warm: {
+    label: TEMP_CFG.warm.label,
+    sublabel: 'Eventos atribuídos a conjuntos mornos',
+    Icon: Wind,
+    iconCls: TEMP_CFG.warm.iconCls,
+    border: 'border-amber-500/25',
+    bg: 'bg-amber-500/[0.03]',
+  },
+  cold: {
+    label: TEMP_CFG.cold.label,
+    sublabel: 'Eventos atribuídos a conjuntos frios',
+    Icon: Snowflake,
+    iconCls: TEMP_CFG.cold.iconCls,
+    border: 'border-blue-500/25',
+    bg: 'bg-blue-500/[0.03]',
+  },
+  unknown: {
+    label: 'Não atribuído',
+    sublabel: 'Sem vínculo creative_id/adset_id com conjuntos ORUS (ex.: orgânico)',
+    Icon: HelpCircle,
+    iconCls: 'text-zinc-400',
+    border: 'border-zinc-600/50',
+    bg: 'bg-zinc-800/30',
+  },
+};
+
+function TopPairs({ label, items }: { label: string; items: { key: string; count: number }[] }) {
+  if (!items.length) return null;
+  return (
+    <div>
+      <p className="text-[10px] text-zinc-500 uppercase tracking-wide mb-1">{label}</p>
+      <ul className="space-y-0.5">
+        {items.map((row, i) => (
+          <li key={i} className="flex justify-between gap-2 text-[11px] text-zinc-400">
+            <span className="truncate text-zinc-300" title={row.key}>{row.key}</span>
+            <span className="flex-shrink-0 tabular-nums">{row.count}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function SiteTrackingBucketPanel({
+  temp,
+  bucket,
+}: {
+  temp: typeof SITE_TRACKING_TEMP_KEYS[number];
+  bucket: SiteTrackingBucket;
+}) {
+  const cfg = SITE_TRACKING_TEMP_UI[temp];
+  const Icon = cfg.Icon;
+  const has = bucket.pageviews + bucket.leads + bucket.purchases + bucket.custom > 0;
+
+  return (
+    <div className={`rounded-xl border p-4 ${cfg.border} ${cfg.bg}`}>
+      <div className="flex items-start gap-2 mb-3">
+        <Icon className={`w-4 h-4 flex-shrink-0 mt-0.5 ${cfg.iconCls}`} />
+        <div className="min-w-0">
+          <p className="text-xs font-semibold text-zinc-200">{cfg.label}</p>
+          <p className="text-[10px] text-zinc-500 leading-snug">{cfg.sublabel}</p>
+        </div>
+      </div>
+
+      {!has ? (
+        <p className="text-[11px] text-zinc-600 py-1">Sem eventos do script neste período.</p>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-x-3 gap-y-2 text-[11px] mb-3">
+            <div>
+              <p className="text-zinc-500">Visitantes (~)</p>
+              <p className="text-sm font-semibold text-zinc-100">{bucket.visitsApprox}</p>
+            </div>
+            <div>
+              <p className="text-zinc-500">Visitas</p>
+              <p className="text-sm font-semibold text-zinc-100">{bucket.pageviews}</p>
+            </div>
+            <div>
+              <p className="text-zinc-500">Cadastros</p>
+              <p className="text-sm font-semibold text-cyan-400">{bucket.leads}</p>
+            </div>
+            <div>
+              <p className="text-zinc-500">Vendas</p>
+              <p className="text-sm font-semibold text-violet-400">{bucket.purchases}</p>
+            </div>
+            {bucket.custom > 0 && (
+              <div className="col-span-2">
+                <p className="text-zinc-500">Personalizados</p>
+                <p className="text-sm font-semibold text-amber-400/90">{bucket.custom}</p>
+              </div>
+            )}
+            {bucket.revenue > 0 && (
+              <div className="col-span-2 flex items-center gap-1.5 text-emerald-400">
+                <DollarSign className="w-3.5 h-3.5" />
+                <span className="text-sm font-semibold">R${bucket.revenue.toFixed(2)}</span>
+                <span className="text-[10px] text-zinc-500">faturamento rastreado</span>
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-wrap gap-3 text-[10px] text-zinc-500 mb-3 pb-3 border-b border-zinc-800/80">
+            <span className="inline-flex items-center gap-1">
+              <Smartphone className="w-3 h-3" /> {bucket.devices.mobile} mob
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <Monitor className="w-3 h-3" /> {bucket.devices.desktop} desk
+            </span>
+            {bucket.devices.unknown > 0 && (
+              <span className="text-zinc-600">· {bucket.devices.unknown} s/ UA</span>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 gap-3">
+            <TopPairs label="utm_source" items={bucket.topUtmSources} />
+            <TopPairs label="utm_medium" items={bucket.topUtmMediums} />
+            <TopPairs label="utm_campaign" items={bucket.topUtmCampaigns} />
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function SiteTrackingByAudienceSection({ st }: { st: SiteTrackingByTemp | undefined }) {
+  if (!st) return null;
+
+  return (
+    <section className="rounded-xl border border-emerald-500/20 bg-zinc-900/40 p-5">
+      <div className="flex items-center gap-2 mb-1">
+        <Code2 className="w-4 h-4 text-emerald-400" />
+        <h2 className="text-sm font-semibold text-zinc-200 tracking-wide">
+          Rastreamento do site (script ORUS)
+        </h2>
+      </div>
+      <p className="text-[11px] text-zinc-500 mb-4 max-w-3xl">
+        Eventos capturados pelo script na landing, distribuídos pela{' '}
+        <strong className="text-zinc-400">mesma lógica de temperatura</strong> dos conjuntos Meta sincronizados
+        (parâmetros <code className="text-zinc-400">creative_id</code> / <code className="text-zinc-400">adset_id</code>
+        {' '}→ criativo ou conjunto ORUS → segmentação).
+      </p>
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+        {SITE_TRACKING_TEMP_KEYS.map(k => (
+          <SiteTrackingBucketPanel key={k} temp={k} bucket={st[k]} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
 // ─── Main page ────────────────────────────────────────────────
 
 export function AudienceFunnel() {
@@ -471,6 +658,8 @@ export function AudienceFunnel() {
               </div>
             )}
           </section>
+
+          <SiteTrackingByAudienceSection st={data?.siteTrackingByTemp} />
         </>
       )}
     </div>
